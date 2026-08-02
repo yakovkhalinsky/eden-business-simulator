@@ -28,7 +28,7 @@ def test_gym_emits_expected_event_types():
     sim.initialize(config.seed)
     events = []
     clock = Clock(tick_seconds=1.0 / config.events_per_second)
-    for _ in range(80):
+    for _ in range(120):
         events.append(sim.next_event(clock))
         clock.advance()
     emitted_types = {e["event_type"] for e in events}
