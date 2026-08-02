@@ -53,6 +53,32 @@ class Clock(BaseModel):
         return (self.now - self.start_time).total_seconds()
 
 
+class StreamConfig(BaseModel):
+    """Persistent stream identity and resume metadata."""
+
+    stream_id: str
+    business_type: str
+    seed: int = 42
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class Snapshot(BaseModel):
+    """A saved simulator state at a point in time."""
+
+    stream_id: str
+    sequence: int
+    saved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class Checkpoint(BaseModel):
+    """Resume offset for a stream."""
+
+    stream_id: str
+    last_sequence: int
+    saved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class EventEnvelope(BaseModel):
     """Canonical envelope for every emitted event."""
 
@@ -62,6 +88,8 @@ class EventEnvelope(BaseModel):
     event_type: str
     payload: dict[str, Any] = Field(default_factory=dict)
     version: str = "1.0"
+    stream_id: Optional[str] = None
+    sequence: Optional[int] = None
 
     @classmethod
     def from_event(
@@ -71,12 +99,16 @@ class EventEnvelope(BaseModel):
         event_type: str,
         payload: dict[str, Any],
         timestamp: datetime,
+        stream_id: Optional[str] = None,
+        sequence: Optional[int] = None,
     ) -> "EventEnvelope":
         return cls(
             timestamp=timestamp,
             business_type=business_type,
             event_type=event_type,
             payload=payload,
+            stream_id=stream_id,
+            sequence=sequence,
         )
 
     def to_json_line(self) -> str:

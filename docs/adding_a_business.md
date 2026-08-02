@@ -21,6 +21,8 @@ class MySimulator(BusinessSimulator):
 
 `next_event` must return a dict with `event_type` and `payload`. The runner wraps it in an `EventEnvelope` and writes it through the selected output adapter.
 
+For continuous/daemon mode, a simulator may also implement an optional `restore(snapshot: dict[str, Any]) -> None` hook so it can resume deterministic generation from a checkpoint. The default no-op is safe for stateless domains.
+
 ## Determinism
 
 Use the provided `seed` to initialize `random.Random` and `faker.Faker` instances. Never rely on global random state so that a run is reproducible when given the same seed.
@@ -87,3 +89,13 @@ class MySimulator(BusinessSimulator):
 ```
 
 Use `DaypartScheduler` when event likelihoods should vary by simulated hour, and combine it with `WeightedEventCatalog` by passing the scheduler into the catalog constructor.
+
+## Storage and replay
+
+The simulator now ships with a pluggable `StorageAdapter` layer under `src/eden_business_simulator/storage/`:
+
+- `SqliteStorageAdapter` — default local backend (WAL mode, event_log / snapshots / checkpoints tables)
+- `NdjsonStorageAdapter` — append-only NDJSON file with companion metadata
+- `MemoryStorageAdapter` — volatile in-memory backend for tests
+
+New backends can be added by subclassing `StorageAdapter` and registering them in `src/eden_business_simulator/storage/__init__.py`. Events are persisted with a monotonic `sequence` per `stream_id` and can be replayed through the `replay` CLI command.
