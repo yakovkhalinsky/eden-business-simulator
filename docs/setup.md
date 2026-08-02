@@ -172,8 +172,10 @@ Each event is POSTed as a JSON `EventEnvelope`.
 ```bash
 uv run eden-business-simulator replay logistics_run_1 \
   --storage sqlite --storage-uri runs.db \
-  --no-realtime --speed 100.0 | ./evaluator
+  --speed 100.0 | ./evaluator
 ```
+
+Replay always reads stored events at wall-clock pacing scaled by `--speed`; there is no `--no-realtime` flag for replay. To make replay emit as fast as possible, use a large `--speed` value such as `100.0`.
 
 ## Determinism and seeds
 
