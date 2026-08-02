@@ -124,6 +124,11 @@ class ContinuousRunner:
             while not self._shutdown_event.is_set():
                 if self._max_events and self._events_emitted >= self._max_events:
                     break
+                if (
+                    self.config.duration_seconds
+                    and self.clock.elapsed_seconds() >= self.config.duration_seconds
+                ):
+                    break
                 event = self.simulator.next_event(self.clock)
                 envelope = EventEnvelope.from_event(
                     business_type=self.config.business_type,

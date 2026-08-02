@@ -35,8 +35,11 @@ class MemoryStorageAdapter(StorageAdapter):
         self,
         offset: int = 0,
         limit: int | None = None,
+        from_sequence: int | None = None,
     ) -> Iterator[StoredRecord]:
         records = self._records[offset:]
+        if from_sequence is not None:
+            records = [r for r in records if r.sequence >= from_sequence]
         if limit is not None:
             records = records[:limit]
         yield from records

@@ -510,15 +510,66 @@ Implemented on branch `feature/realtime-persistence-and-domains`:
    - `docs/adding_a_business.md` with storage/replay notes and the `restore` hook.
    - `docs/realtime_and_research_plan.md` with this implementation status section.
 
+## Rework after Verifier red verdict
+
+Goal `28d3a301-185e-4610-bdf9-3f2577d616e0` was handed back to Builder because the
+Verifier found three CLI/storage defects in the replay/status area
+(verdict `12b66733-524f-4fba-996f-3f30f3eebc5d`).
+
+### Defects fixed
+
+1. **`replay --from-sequence` semantics were broken.**
+   - The CLI passed the sequence value as a storage `offset`, but `offset` means
+     SQLite `rowid` and NDJSON byte offset.
+   - `StorageAdapter.read_from` now accepts a separate `from_sequence` argument.
+   - SQLite filters by `sequence >= ?`; NDJSON filters by `record.sequence >= ?`;
+     `MemoryStorageAdapter` filters by sequence.
+   - CLI `replay` now calls `read_from(from_sequence=...)`.
+
+2. **`replay --speed` was ignored.**
+   - Replay now paces events by the wall-clock delta between envelope timestamps,
+     divided by `--speed`.
+   - `--speed 1.0` replays at original timing; values >1 are faster, values <1 are
+     slower. Values <=0 are rejected.
+
+3. **`status` showed `checkpoint=none` for every stream.**
+   - The command used a single adapter with an empty `stream_id`, so
+     `read_checkpoint()` could never match a per-stream checkpoint.
+   - `status` now loads the storage adapter, calls `stream_ids()` to enumerate
+     distinct streams, then instantiates a per-stream adapter to read the correct
+     checkpoint.
+   - `stream_ids()` is implemented for SQLite and NDJSON.
+
+### Additional improvements during rework
+
+- Added `--duration` to `daemon` so bounded runs can stop after a simulated-time
+  duration as well as after `--max-events`. This makes the adversarial
+  verification command (`daemon gym --duration 5 ...`) work as written.
+- Fixed `NDJsonOutputAdapter` to resolve `sys.stdout` lazily at instantiation time
+  instead of binding the default at function-definition time. This lets the
+  Typer test runner capture replayed NDJSON output correctly.
+
+### Test results after rework
+
+`uv run pytest` passes with 110 tests.
+
+### Verification commands run
+
+- `eden-business-simulator run cafe --duration 0.5 --rate 10 --seed 42 --no-realtime` — OK.
+- `eden-business-simulator daemon gym --duration 5 --rate 2 --seed 1 --storage sqlite --storage-uri /tmp/gym_rework.db --no-realtime`, then `replay ... --from-sequence 2` — sequences start at 2 — OK.
+- Same daemon/replay flow with `--storage ndjson` — sequences start at 2 — OK.
+- `eden-business-simulator status --storage sqlite --storage-uri /tmp/gym_rework.db` — shows `stream=... latest_sequence=9 checkpoint=9` — OK.
+
 ## Deviations from the original plan
 
 - `output_mode` was extended to include `none` so `daemon` can persist without writing to stdout.
 - `daemon` accepts `--max-events` to make automated testing and bounded runs practical; the original spec implied infinite runs controlled only by signals.
-- The `status` command is implemented for the SQLite backend only because NDJSON lacks a native stream enumeration mechanism.
+- `daemon` now also accepts `--duration` for bounded simulated-time runs.
+- `status` now supports both SQLite and NDJSON backends.
 
 ## Test results
 
-`uv run pytest` passes with 103 tests.
+`uv run pytest` passes with 110 tests.
 
 ## Sources
 

@@ -71,3 +71,12 @@ def test_checkpoint_round_trip(tmp_ndjson: NdjsonStorageAdapter):
     checkpoint = tmp_ndjson.read_checkpoint()
     assert checkpoint is not None
     assert checkpoint["last_sequence"] == 99
+
+
+def test_read_from_from_sequence(tmp_ndjson: NdjsonStorageAdapter):
+    for i in range(5):
+        tmp_ndjson.append(make_envelope("tick", seq=i))
+    records = list(tmp_ndjson.read_from(from_sequence=2))
+    assert len(records) == 3
+    assert records[0].sequence == 2
+    assert records[-1].sequence == 4

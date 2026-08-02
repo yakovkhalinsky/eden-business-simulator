@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import time
 import typer
 
 from eden_business_simulator.businesses import list_business_types, load_simulator
@@ -15,7 +16,6 @@ from eden_business_simulator.output.http import HttpOutputAdapter
 from eden_business_simulator.output.ndjson import NDJsonOutputAdapter
 from eden_business_simulator.runner import Runner
 from eden_business_simulator.storage import load_storage_adapter
-from eden_business_simulator.storage.sqlite import SqliteStorageAdapter
 
 app = typer.Typer(
     name="eden-business-simulator",
@@ -94,6 +94,9 @@ def run(
 @app.command()
 def daemon(
     business_type: str = typer.Argument(..., help="Business domain to simulate."),
+    duration: float = typer.Option(
+        0.0, "--duration", "-d", help="Stop after this many simulated seconds (0 = unlimited)."
+    ),
     rate: float = typer.Option(
         2.0, "--rate", "-r", help="Events per simulated second."
     ),
@@ -138,7 +141,7 @@ def daemon(
 
     config = SimulatorConfig(
         business_type=business_type,
-        duration_seconds=0.0,
+        duration_seconds=duration,
         events_per_second=rate,
         max_events=max_events,
         seed=seed,
@@ -221,16 +224,24 @@ def replay(
             raise typer.BadParameter("--webhook-url is required when output is 'http'")
         output_adapter = HttpOutputAdapter(webhook_url)
 
-    offset = from_sequence if from_sequence is not None else 0
+    if speed <= 0:
+        raise typer.BadParameter("--speed must be greater than 0")
 
     output_count = 0
+    previous_timestamp = None
     try:
-        for record in storage_adapter.read_from(offset=offset):
+        for record in storage_adapter.read_from(from_sequence=from_sequence):
             if to_sequence is not None and record.sequence > to_sequence:
                 break
+            if previous_timestamp is not None:
+                delta = (record.envelope.timestamp - previous_timestamp).total_seconds()
+                sleep_for = max(0.0, delta) / speed
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
             if output_adapter is not None:
                 output_adapter.write(record.envelope)
             output_count += 1
+            previous_timestamp = record.envelope.timestamp
     finally:
         if output_adapter is not None:
             try:
@@ -252,26 +263,34 @@ def status(
     ),
 ) -> None:
     """List streams and their latest sequences."""
-    if storage == "sqlite":
-        if storage_uri is None:
+    if storage_uri is None:
+        if storage == "sqlite":
             storage_uri = "eden_business_simulator.db"
-        adapter = SqliteStorageAdapter(storage_uri, "")
-        try:
-            rows = adapter._connection.execute(
-                "SELECT stream_id, COUNT(*) AS cnt, MAX(sequence) AS max_seq "
-                "FROM event_log GROUP BY stream_id ORDER BY stream_id"
-            ).fetchall()
-            for stream_id, count, max_seq in rows:
-                checkpoint = adapter.read_checkpoint()
+        elif storage == "ndjson":
+            typer.echo("--storage-uri is required for ndjson status.", err=True)
+            raise typer.Exit(code=1)
+        else:
+            storage_uri = "memory://"
+
+    adapter = load_storage_adapter(storage, storage_uri, "")
+    try:
+        stream_ids = adapter.stream_ids()
+        if not stream_ids:
+            typer.echo("No streams found.")
+            return
+        for stream_id in stream_ids:
+            per_stream = load_storage_adapter(storage, storage_uri, stream_id)
+            try:
+                latest_sequence = per_stream.latest_sequence()
+                checkpoint = per_stream.read_checkpoint()
                 cp_seq = checkpoint["last_sequence"] if checkpoint else "none"
                 typer.echo(
-                    f"stream={stream_id} events={count} latest_sequence={max_seq} checkpoint={cp_seq}"
+                    f"stream={stream_id} latest_sequence={latest_sequence} checkpoint={cp_seq}"
                 )
-        finally:
-            adapter.close()
-    else:
-        typer.echo("Status command currently supports sqlite storage only.", err=True)
-        raise typer.Exit(code=1)
+            finally:
+                per_stream.close()
+    finally:
+        adapter.close()
 
 
 @app.command()

@@ -87,6 +87,7 @@ class NdjsonStorageAdapter(StorageAdapter):
         self,
         offset: int = 0,
         limit: int | None = None,
+        from_sequence: int | None = None,
     ) -> Iterator[StoredRecord]:
         with self._lock:
             if not self._path.exists():
@@ -100,6 +101,8 @@ class NdjsonStorageAdapter(StorageAdapter):
                     if record is None:
                         continue
                     if record.offset < offset:
+                        continue
+                    if from_sequence is not None and record.sequence < from_sequence:
                         continue
                     yield record
                     emitted += 1
@@ -156,3 +159,17 @@ class NdjsonStorageAdapter(StorageAdapter):
     def read_checkpoint(self) -> dict[str, Any] | None:
         with self._lock:
             return self._meta["checkpoints"].get(self.stream_id)
+
+    def stream_ids(self) -> list[str]:
+        with self._lock:
+            ids: set[str] = set()
+            if not self._path.exists():
+                return []
+            with self._path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    record = self._read_line(line)
+                    if record is not None:
+                        ids.add(record.stream_id)
+            return sorted(ids)

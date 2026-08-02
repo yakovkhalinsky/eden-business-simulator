@@ -42,8 +42,15 @@ class StorageAdapter(ABC):
         self,
         offset: int = 0,
         limit: int | None = None,
+        from_sequence: int | None = None,
     ) -> Iterator[StoredRecord]:
-        """Read stored records starting at ``offset`` (inclusive)."""
+        """Read stored records starting at ``offset`` (inclusive).
+
+        If ``from_sequence`` is provided, only records whose ``sequence`` is
+        greater than or equal to that value are yielded.  ``offset`` is the
+        storage-level offset (rowid for SQLite, byte offset for NDJSON) and
+        should not be confused with the logical sequence number.
+        """
         ...
 
     @abstractmethod
@@ -75,6 +82,14 @@ class StorageAdapter(ABC):
     def read_checkpoint(self) -> dict[str, Any] | None:
         """Retrieve the latest checkpoint for this stream, if any."""
         ...
+
+    def stream_ids(self) -> list[str]:
+        """Return the stream identifiers present in this storage.
+
+        Adapters that do not support enumeration (e.g. in-memory) may return
+        ``[self.stream_id]``.
+        """
+        return [self.stream_id]
 
     def close(self) -> None:
         """Release any resources held by the adapter."""

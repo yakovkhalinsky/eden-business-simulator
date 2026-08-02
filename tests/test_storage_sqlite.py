@@ -101,3 +101,23 @@ def test_multiple_streams_are_isolated(tmp_sqlite: SqliteStorageAdapter):
         assert len(list(other.read_from(offset=0))) == 1
     finally:
         other.close()
+
+
+def test_read_from_from_sequence(tmp_sqlite: SqliteStorageAdapter):
+    for i in range(5):
+        tmp_sqlite.append(make_envelope("tick", seq=i))
+    records = list(tmp_sqlite.read_from(from_sequence=2))
+    assert len(records) == 3
+    assert records[0].sequence == 2
+    assert records[-1].sequence == 4
+
+
+def test_stream_ids_returns_distinct_streams(tmp_sqlite: SqliteStorageAdapter):
+    tmp_sqlite.append(make_envelope("a", seq=0))
+    other = SqliteStorageAdapter(tmp_sqlite.uri, "other_stream")
+    try:
+        other.append(make_envelope("b", seq=0))
+        ids = tmp_sqlite.stream_ids()
+        assert sorted(ids) == ["other_stream", "test_stream"]
+    finally:
+        other.close()

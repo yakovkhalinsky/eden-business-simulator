@@ -105,15 +105,19 @@ class SqliteStorageAdapter(StorageAdapter):
         self,
         offset: int = 0,
         limit: int | None = None,
+        from_sequence: int | None = None,
     ) -> Iterator[StoredRecord]:
         with self._lock:
             sql = """
                 SELECT offset, sequence, stream_id, stored_at, envelope_json
                 FROM event_log
                 WHERE stream_id = ? AND offset >= ?
-                ORDER BY offset
             """
             params: list[Any] = [self.stream_id, offset]
+            if from_sequence is not None:
+                sql += " AND sequence >= ?"
+                params.append(from_sequence)
+            sql += " ORDER BY sequence"
             if limit is not None:
                 sql += " LIMIT ?"
                 params.append(limit)
@@ -204,6 +208,13 @@ class SqliteStorageAdapter(StorageAdapter):
                 "event_count": total,
                 "checkpoint": checkpoint,
             }
+
+    def stream_ids(self) -> list[str]:
+        with self._lock:
+            cursor = self._connection.execute(
+                "SELECT DISTINCT stream_id FROM event_log ORDER BY stream_id"
+            )
+            return [row[0] for row in cursor]
 
     def close(self) -> None:
         with self._lock:
