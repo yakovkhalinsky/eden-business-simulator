@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from eden_business_simulator.businesses.base import BusinessSimulator
 from eden_business_simulator.businesses.cafe import CafeSimulator
+from eden_business_simulator.businesses.clinic import ClinicSimulator
 from eden_business_simulator.businesses.ecommerce import EcommerceSimulator
+from eden_business_simulator.businesses.field_service import FieldServiceSimulator
+from eden_business_simulator.businesses.gym import GymSimulator
+from eden_business_simulator.businesses.logistics import LogisticsSimulator
 from eden_business_simulator.businesses.saas import SaaSSimulator
 
 _REGISTRY: dict[str, type[BusinessSimulator]] = {
     CafeSimulator.business_type: CafeSimulator,
+    ClinicSimulator.business_type: ClinicSimulator,
     EcommerceSimulator.business_type: EcommerceSimulator,
+    FieldServiceSimulator.business_type: FieldServiceSimulator,
+    GymSimulator.business_type: GymSimulator,
+    LogisticsSimulator.business_type: LogisticsSimulator,
     SaaSSimulator.business_type: SaaSSimulator,
 }
 

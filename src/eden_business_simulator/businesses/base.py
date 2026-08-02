@@ -40,3 +40,13 @@ class BusinessSimulator(ABC):
     def state_snapshot(self) -> dict[str, Any]:
         """Return a serializable view of the simulator's current state."""
         ...
+
+    def restore(self, snapshot: dict[str, Any]) -> None:
+        """Restore simulator state from a durable snapshot.
+
+        Simulators that maintain internal entity state can override this hook
+        to resume continuous generation from a checkpoint.  The default is a
+        no-op so that stateless simulators can still be resumed deterministically
+        from the original seed and the last checkpoint sequence.
+        """
+        pass

@@ -13,6 +13,10 @@ def test_list_types():
     assert "ecommerce" in result.output
     assert "saas" in result.output
     assert "cafe" in result.output
+    assert "gym" in result.output
+    assert "logistics" in result.output
+    assert "field_service" in result.output
+    assert "clinic" in result.output
 
 
 def test_run_cafe_fast():
@@ -53,8 +57,332 @@ def test_run_ecommerce_fast():
     assert "Emitted 2 events" in result.output
 
 
+def test_run_field_service_fast():
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "field_service",
+            "--duration",
+            "0.2",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Emitted" in result.output
+
+
+def test_run_clinic_fast():
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "clinic",
+            "--duration",
+            "0.2",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Emitted" in result.output
+
+
 def test_run_unknown_business():
     result = runner.invoke(app, ["run", "healthcare"])
     assert result.exit_code != 0
     assert result.exception is not None
     assert "Unknown business_type" in str(result.exception)
+
+
+def test_run_gym_fast():
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "gym",
+            "--duration",
+            "0.2",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Emitted" in result.output
+
+
+def test_run_logistics_fast():
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "logistics",
+            "--duration",
+            "0.2",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Emitted" in result.output
+
+
+def test_daemon_and_replay(tmp_path):
+    db_path = tmp_path / "stream.db"
+    result = runner.invoke(
+        app,
+        [
+            "daemon",
+            "gym",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--stream-id",
+            "daemon_test_stream",
+            "--rate",
+            "100",
+            "--seed",
+            "1",
+            "--no-realtime",
+            "--output",
+            "none",
+            "--checkpoint-events",
+            "5",
+            "--max-events",
+            "10",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "daemon_test_stream" in result.output
+
+    replay_result = runner.invoke(
+        app,
+        [
+            "replay",
+            "daemon_test_stream",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--output",
+            "ndjson",
+        ],
+    )
+    assert replay_result.exit_code == 0
+    assert "Replayed" in replay_result.output
+    assert "10 events" in replay_result.output
+
+
+def test_checkpoint_command(tmp_path):
+    db_path = tmp_path / "cp.db"
+    result = runner.invoke(
+        app,
+        [
+            "checkpoint",
+            "gym",
+            "cp_stream",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--seed",
+            "1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Checkpointed stream 'cp_stream'" in result.output
+
+
+def test_replay_sqlite_from_sequence(tmp_path):
+    db_path = tmp_path / "seq.db"
+    runner.invoke(
+        app,
+        [
+            "daemon",
+            "gym",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--stream-id",
+            "seq_stream",
+            "--rate",
+            "100",
+            "--seed",
+            "1",
+            "--no-realtime",
+            "--output",
+            "none",
+            "--checkpoint-events",
+            "100",
+            "--max-events",
+            "5",
+        ],
+    )
+    replay = runner.invoke(
+        app,
+        [
+            "replay",
+            "seq_stream",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--from-sequence",
+            "2",
+            "--output",
+            "ndjson",
+        ],
+    )
+    assert replay.exit_code == 0
+    assert "Replayed 3 events" in replay.output
+    lines = [line for line in replay.stdout.splitlines() if line.strip().startswith("{")]
+    assert len(lines) == 3
+    assert '"sequence":2' in lines[0]
+    assert '"sequence":4' in lines[-1]
+
+
+def test_replay_ndjson_from_sequence(tmp_path):
+    log_path = tmp_path / "seq.jsonl"
+    runner.invoke(
+        app,
+        [
+            "daemon",
+            "gym",
+            "--storage",
+            "ndjson",
+            "--storage-uri",
+            str(log_path),
+            "--stream-id",
+            "seq_stream",
+            "--rate",
+            "100",
+            "--seed",
+            "1",
+            "--no-realtime",
+            "--output",
+            "none",
+            "--checkpoint-events",
+            "100",
+            "--max-events",
+            "5",
+        ],
+    )
+    replay = runner.invoke(
+        app,
+        [
+            "replay",
+            "seq_stream",
+            "--storage",
+            "ndjson",
+            "--storage-uri",
+            str(log_path),
+            "--from-sequence",
+            "2",
+            "--output",
+            "ndjson",
+        ],
+    )
+    assert replay.exit_code == 0
+    assert "Replayed 3 events" in replay.output
+    lines = [line for line in replay.stdout.splitlines() if line.strip().startswith("{")]
+    assert len(lines) == 3
+    assert '"sequence":2' in lines[0]
+    assert '"sequence":4' in lines[-1]
+
+
+def test_replay_speed_pacing(tmp_path, monkeypatch):
+    db_path = tmp_path / "speed.db"
+    runner.invoke(
+        app,
+        [
+            "daemon",
+            "gym",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--stream-id",
+            "speed_stream",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+            "--output",
+            "none",
+            "--checkpoint-events",
+            "100",
+            "--max-events",
+            "3",
+        ],
+    )
+    sleeps = []
+    monkeypatch.setattr("eden_business_simulator.cli.time.sleep", lambda s: sleeps.append(s))
+    replay = runner.invoke(
+        app,
+        [
+            "replay",
+            "speed_stream",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--speed",
+            "2.0",
+            "--output",
+            "ndjson",
+        ],
+    )
+    assert replay.exit_code == 0
+    assert "Replayed 3 events" in replay.output
+    # Three events with 0.1s simulated gaps; first event has no sleep, so two sleeps of 0.05s.
+    assert len(sleeps) == 2
+    assert all(abs(s - 0.05) < 0.001 for s in sleeps)
+
+
+def test_status_shows_per_stream_checkpoint(tmp_path):
+    db_path = tmp_path / "status.db"
+    runner.invoke(
+        app,
+        [
+            "daemon",
+            "gym",
+            "--storage",
+            "sqlite",
+            "--storage-uri",
+            str(db_path),
+            "--stream-id",
+            "status_stream",
+            "--rate",
+            "100",
+            "--seed",
+            "1",
+            "--no-realtime",
+            "--output",
+            "none",
+            "--checkpoint-events",
+            "5",
+            "--max-events",
+            "10",
+        ],
+    )
+    status = runner.invoke(app, ["status", "--storage", "sqlite", "--storage-uri", str(db_path)])
+    assert status.exit_code == 0
+    assert "stream=status_stream" in status.output
+    assert "latest_sequence=9" in status.output
+    assert "checkpoint=9" in status.output
