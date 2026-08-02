@@ -1,6 +1,6 @@
 # Eden Business Simulator
 
-A greenfields business simulator framework that emits realistic event streams one business domain at a time. Built for external tool evaluation. Now supports durable, continuous generation with SQLite/NDJSON persistence and replay.
+A greenfields business simulator framework that emits realistic event streams one business domain at a time. Built for external tool evaluation. Supports durable, continuous generation with SQLite/NDJSON persistence and replay.
 
 ## Quick start
 
@@ -9,28 +9,20 @@ Requires Python 3.12 and `uv`.
 ```bash
 uv sync
 uv run eden-business-simulator run ecommerce --duration 60 --rate 2 --seed 42
-
-# Run the cafe simulator
-uv run eden-business-simulator run cafe --duration 300 --rate 2 --seed 42 --no-realtime
-
-# Run the gym simulator
-uv run eden-business-simulator run gym --duration 300 --rate 2 --seed 42 --no-realtime
-
-# Run the logistics simulator
-uv run eden-business-simulator run logistics --duration 300 --rate 2 --seed 42 --no-realtime
 ```
 
 Pipe the NDJSON output to an evaluator:
 
 ```bash
-uv run eden-business-simulator run ecommerce --duration 30 --rate 5 | ./my-evaluator
-uv run eden-business-simulator run gym --duration 120 --rate 2 --no-realtime | ./my-evaluator
+uv run eden-business-simulator run ecommerce --duration 30 --rate 5 --seed 42 --no-realtime | ./my-evaluator
 ```
 
 ## Available business types
 
 - `cafe` — hospitality events (shift open/close, staff, menu, supplier deliveries, tables, orders, KDS tickets, payments, loyalty, wastage, stock counts)
+- `clinic` — outpatient healthcare events (appointments, encounters, vitals, diagnoses, procedures, labs, prescriptions, claims, payments, referrals, no-shows)
 - `ecommerce` — online retail events (customers, products, carts, orders, payments, shipping, refunds, inventory)
+- `field_service` — dispatched technician events (tickets, assignment, dispatch, diagnosis, parts, work completion, invoices, payments, follow-ups)
 - `gym` — fitness studio events (memberships, check-ins, class booking/attendance, PT sessions, workouts, progress, retail, billing, churn)
 - `logistics` — last-mile delivery events (shipments, routes, drivers, stops, delivery attempts, POD, exceptions, feedback, returns, fuel)
 - `saas` — minimal SaaS stub (account signup and feature usage)
@@ -71,9 +63,12 @@ uv run eden-business-simulator checkpoint gym gym_demo_seed42 \
 
 The daemon writes periodic checkpoints and a final checkpoint on shutdown so it can resume from the last sequence without duplicating events.
 
-## Project layout
+## Documentation
 
-See `docs/realtime_and_research_plan.md` and `docs/adding_a_business.md`.
+- [`docs/setup.md`](docs/setup.md) — installation, CLI usage, daemon/replay/status, output modes, evaluator integration, determinism, and stream ID guidance.
+- [`docs/businesses/`](docs/businesses/) — one guide per supported business type with domain overview, systems, workflow, event catalog, and example payloads.
+- [`docs/architecture.md`](docs/architecture.md) — event envelope, clock, runners, storage/output adapters, `BusinessSimulator` lifecycle, and framework helpers.
+- [`docs/adding_a_business.md`](docs/adding_a_business.md) — runbook for adding a new simulator and updating the docs.
 
 ## Tests
 
