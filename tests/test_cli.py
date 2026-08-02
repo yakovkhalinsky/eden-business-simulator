@@ -12,6 +12,26 @@ def test_list_types():
     assert result.exit_code == 0
     assert "ecommerce" in result.output
     assert "saas" in result.output
+    assert "cafe" in result.output
+
+
+def test_run_cafe_fast():
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "cafe",
+            "--duration",
+            "0.2",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Emitted 2 events" in result.output
 
 
 def test_run_ecommerce_fast():
