@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.cafe import CafeSimulator
 from eden_business_simulator.businesses.ecommerce import EcommerceSimulator
 from eden_business_simulator.businesses.saas import SaaSSimulator
 
 _REGISTRY: dict[str, type[BusinessSimulator]] = {
+    CafeSimulator.business_type: CafeSimulator,
     EcommerceSimulator.business_type: EcommerceSimulator,
     SaaSSimulator.business_type: SaaSSimulator,
 }
