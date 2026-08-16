@@ -76,6 +76,44 @@ def test_run_field_service_fast():
     assert "Emitted" in result.output
 
 
+def test_run_electrician_fast():
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "electrician",
+            "--duration",
+            "0.2",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Emitted" in result.output
+
+
+def test_run_plumber_fast():
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "plumber",
+            "--duration",
+            "0.2",
+            "--rate",
+            "10",
+            "--seed",
+            "1",
+            "--no-realtime",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Emitted" in result.output
+
+
 def test_run_clinic_fast():
     result = runner.invoke(
         app,
