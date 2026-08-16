@@ -70,6 +70,8 @@ class GymSimulator(BusinessSimulator):
         self.invoices_counter = 0
 
         self._cancelled_members: list[str] = []
+        self._frozen_members: list[str] = []
+        self.at_risk_members: set[str] = set()
 
     def initialize(self, seed: int) -> None:
         self.rng.seed(seed)
@@ -94,6 +96,8 @@ class GymSimulator(BusinessSimulator):
         self.payments_failed = []
         self.invoices_counter = 0
         self._cancelled_members = []
+        self._frozen_members = []
+        self.at_risk_members = set()
 
         # Seed a small roster of instructors and trainers.
         for role in ("instructor", "instructor", "trainer", "front_desk"):
@@ -106,6 +110,12 @@ class GymSimulator(BusinessSimulator):
         initial_classes = self.config.initial_state_overrides.get("initial_classes", 4)
         for _ in range(initial_classes):
             self._create_class()
+
+        # Seed one pre-existing at-risk member so freezes can occur before any
+        # payment failure in short deterministic runs.
+        if self.memberships:
+            seeded_at_risk = self.rng.choice(list(self.memberships.keys()))
+            self.at_risk_members.add(seeded_at_risk)
 
         self._build_catalog()
 
@@ -228,7 +238,17 @@ class GymSimulator(BusinessSimulator):
 
         def has_active_members(ctx: "GymSimulator") -> bool:
             return any(
-                m not in ctx._cancelled_members for m in ctx.memberships
+                m not in ctx._cancelled_members
+                and ctx.memberships[m]["status"] != "frozen"
+                for m in ctx.memberships
+            )
+
+        def has_at_risk_active_members(ctx: "GymSimulator") -> bool:
+            return any(
+                mid in ctx.memberships
+                and mid not in ctx._cancelled_members
+                and ctx.memberships[mid]["status"] not in ("frozen", "cancelled")
+                for mid in ctx.at_risk_members
             )
 
         def has_failed_payments(ctx: "GymSimulator") -> bool:
@@ -308,8 +328,8 @@ class GymSimulator(BusinessSimulator):
         )
         self.catalog.register(
             "membership_frozen",
-            base_weight=1.0,
-            guard=has_active_members,
+            base_weight=4.0,
+            guard=has_at_risk_active_members,
         )
         self.catalog.register(
             "membership_cancelled",
@@ -642,6 +662,7 @@ class GymSimulator(BusinessSimulator):
             "attempted_at": clock.now,
         }
         self.payments_failed.append(failure)
+        self.at_risk_members.add(member_id)
         return {
             "event_type": "payment_failed",
             "payload": {
@@ -762,15 +783,27 @@ class GymSimulator(BusinessSimulator):
             },
         }
 
+    _FROZEN_REASONS = (
+        "payment_issue",
+        "medical_hold",
+        "travel",
+        "injury",
+        "seasonal_pause",
+    )
+
     def _emit_membership_frozen(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
+        at_risk = [
+            mid
+            for mid in self.at_risk_members
+            if mid in self.memberships
+            and mid not in self._cancelled_members
+            and self.memberships[mid]["status"] == "active"
         ]
-        if not active_members:
+        if not at_risk:
             return self._emit_membership_enrolled(clock)
-        member_id = self.rng.choice(active_members)
+        member_id = self.rng.choice(at_risk)
+        self.at_risk_members.discard(member_id)
+        self._frozen_members.append(member_id)
         membership = self.memberships[member_id]
         membership["status"] = "frozen"
         resume_date = clock.now + timedelta(days=self.rng.randint(14, 90))
@@ -779,6 +812,7 @@ class GymSimulator(BusinessSimulator):
             "payload": {
                 "member_id": member_id,
                 "membership_id": membership["membership_id"],
+                "reason": self.rng.choice(self._FROZEN_REASONS),
                 "frozen_at": clock.now.isoformat(),
                 "resume_date": resume_date.date().isoformat(),
             },
