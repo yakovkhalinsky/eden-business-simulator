@@ -22,8 +22,10 @@ uv run eden-business-simulator run ecommerce --duration 30 --rate 5 --seed 42 --
 - `cafe` — hospitality events (shift open/close, staff, menu, supplier deliveries, tables, orders, KDS tickets, payments, loyalty, wastage, stock counts)
 - `clinic` — outpatient healthcare events (appointments, encounters, vitals, diagnoses, procedures, labs, prescriptions, claims, payments, referrals, no-shows)
 - `ecommerce` — online retail events (customers, products, carts, orders, payments, shipping, refunds, inventory)
+- `electrician` — dispatched electrical trade events (tickets, assignment, dispatch, diagnosis, parts, work completion, invoices, payments, follow-ups)
 - `field_service` — dispatched technician events (tickets, assignment, dispatch, diagnosis, parts, work completion, invoices, payments, follow-ups)
 - `gym` — fitness studio events (memberships, check-ins, class booking/attendance, PT sessions, workouts, progress, retail, billing, churn)
+- `plumber` — dispatched plumbing trade events (tickets, assignment, dispatch, diagnosis, parts, work completion, invoices, payments, follow-ups)
 - `logistics` — last-mile delivery events (shipments, routes, drivers, stops, delivery attempts, POD, exceptions, feedback, returns, fuel)
 - `saas` — minimal SaaS stub (account signup and feature usage)
 

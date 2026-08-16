@@ -6,18 +6,22 @@ from eden_business_simulator.businesses.base import BusinessSimulator
 from eden_business_simulator.businesses.cafe import CafeSimulator
 from eden_business_simulator.businesses.clinic import ClinicSimulator
 from eden_business_simulator.businesses.ecommerce import EcommerceSimulator
+from eden_business_simulator.businesses.electrician import ElectricianSimulator
 from eden_business_simulator.businesses.field_service import FieldServiceSimulator
 from eden_business_simulator.businesses.gym import GymSimulator
 from eden_business_simulator.businesses.logistics import LogisticsSimulator
+from eden_business_simulator.businesses.plumber import PlumberSimulator
 from eden_business_simulator.businesses.saas import SaaSSimulator
 
 _REGISTRY: dict[str, type[BusinessSimulator]] = {
     CafeSimulator.business_type: CafeSimulator,
     ClinicSimulator.business_type: ClinicSimulator,
     EcommerceSimulator.business_type: EcommerceSimulator,
+    ElectricianSimulator.business_type: ElectricianSimulator,
     FieldServiceSimulator.business_type: FieldServiceSimulator,
     GymSimulator.business_type: GymSimulator,
     LogisticsSimulator.business_type: LogisticsSimulator,
+    PlumberSimulator.business_type: PlumberSimulator,
     SaaSSimulator.business_type: SaaSSimulator,
 }
 
