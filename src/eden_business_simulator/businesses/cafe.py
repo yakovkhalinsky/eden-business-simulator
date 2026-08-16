@@ -7,7 +7,11 @@ from typing import Any
 
 from faker import Faker
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    BusinessSimulator,
+    DEFAULT_TAX_TYPE,
+    compute_tax,
+)
 from eden_business_simulator.framework.actors import (
     ActorPool,
     MenuCatalog,
@@ -664,11 +668,13 @@ class CafeSimulator(BusinessSimulator):
         method = self.rng.choice(["card", "cash", "mobile"])
         tip_rate = self.rng.choice([0.0, 0.05, 0.1, 0.15, 0.2])
         tip = round(order["subtotal"] * tip_rate, 2)
-        total = round(order["subtotal"] + tip, 2)
+        tax_amount = compute_tax(order["subtotal"])
+        total = round(order["subtotal"] + tax_amount + tip, 2)
         payment_id = self.id_gen.next("pay")
         order["payment_id"] = payment_id
         order["total"] = total
         order["tip"] = tip
+        order["tax_amount"] = tax_amount
         order["method"] = method
         order["paid"] = True
 
@@ -690,7 +696,10 @@ class CafeSimulator(BusinessSimulator):
                 "payment_id": payment_id,
                 "order_id": order["order_id"],
                 "amount": order["subtotal"],
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "tip": tip,
+                "total": total,
                 "method": method,
                 "paid_at": clock.now.isoformat(),
             },

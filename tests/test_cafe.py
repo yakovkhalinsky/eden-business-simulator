@@ -180,6 +180,11 @@ def test_order_lifecycle():
     paid = sim._emit_order_paid(clock)
     assert sim.order_machine.get(order_id) == "paid"
     assert paid["payload"]["amount"] == taken["payload"]["subtotal"]
+    assert paid["payload"]["tax_amount"] == round(taken["payload"]["subtotal"] * 0.1, 2)
+    assert paid["payload"]["tax_type"] == "GST"
+    assert paid["payload"]["total"] == round(
+        taken["payload"]["subtotal"] + paid["payload"]["tax_amount"] + paid["payload"]["tip"], 2
+    )
     assert paid["payload"]["payment_id"].startswith("pay_")
 
     loyalty = sim._emit_loyalty_points_earned(clock)

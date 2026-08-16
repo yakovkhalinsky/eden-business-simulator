@@ -61,8 +61,18 @@ def test_analyze_stream_overview_and_aggregates():
         _envelope("customer_created", {"customer_id": "c1"}, 0, seconds=0),
         _envelope("product_viewed", {"customer_id": "c1", "product_id": "p1"}, 1, seconds=1),
         _envelope("cart_updated", {"customer_id": "c1", "items": [{"product_id": "p1"}]}, 2, seconds=2),
-        _envelope("order_placed", {"order_id": "o1", "customer_id": "c1", "total": 99.0}, 3, seconds=3),
-        _envelope("payment_processed", {"order_id": "o1", "amount": 99.0, "status": "approved"}, 4, seconds=4),
+        _envelope(
+            "order_placed",
+            {"order_id": "o1", "customer_id": "c1", "subtotal": 90.0, "tax_amount": 9.0, "tax_type": "GST", "total": 99.0},
+            3,
+            seconds=3,
+        ),
+        _envelope(
+            "payment_processed",
+            {"order_id": "o1", "amount": 99.0, "tax_amount": 9.0, "tax_type": "GST", "status": "approved"},
+            4,
+            seconds=4,
+        ),
     )
 
     report = analyze_stream(adapter, window_minutes=1)
@@ -183,17 +193,33 @@ def test_replay_fidelity():
 def test_kpi_ecommerce():
     events = [
         _envelope("product_viewed", {"customer_id": "c1", "product_id": "p1"}, 0),
-        _envelope("order_placed", {"order_id": "o1", "customer_id": "c1", "total": 50.0}, 1),
-        _envelope("payment_processed", {"order_id": "o1", "amount": 50.0, "status": "approved"}, 2),
-        _envelope("payment_processed", {"order_id": "o2", "amount": 30.0, "status": "declined"}, 3),
-        _envelope("refund_issued", {"order_id": "o1", "amount": 50.0}, 4),
+        _envelope(
+            "order_placed",
+            {"order_id": "o1", "customer_id": "c1", "subtotal": 50.0, "tax_amount": 5.0, "tax_type": "GST", "total": 55.0},
+            1,
+        ),
+        _envelope(
+            "payment_processed",
+            {"order_id": "o1", "amount": 55.0, "tax_amount": 5.0, "tax_type": "GST", "status": "approved"},
+            2,
+        ),
+        _envelope(
+            "payment_processed",
+            {"order_id": "o2", "amount": 33.0, "tax_amount": 3.0, "tax_type": "GST", "status": "declined"},
+            3,
+        ),
+        _envelope(
+            "refund_issued",
+            {"order_id": "o1", "amount": 55.0, "tax_amount": 5.0, "tax_type": "GST"},
+            4,
+        ),
     ]
 
     metrics = calculate_kpis("ecommerce", events)
 
-    assert metrics["revenue"] == 50.0
+    assert metrics["revenue"] == 55.0
     assert metrics["orders"] == 1
-    assert metrics["average_order_value"] == 50.0
+    assert metrics["average_order_value"] == 55.0
     assert metrics["approved_payments"] == 1
     assert metrics["declined_payments"] == 1
     assert metrics["payment_decline_rate"] == 0.5
@@ -204,16 +230,51 @@ def test_kpi_ecommerce():
 
 def test_kpi_gym():
     events = [
-        _envelope("membership_enrolled", {"member_id": "m1", "monthly_fee": 49.0}, 0, business_type="gym"),
-        _envelope("membership_enrolled", {"member_id": "m2", "monthly_fee": 79.0}, 1, business_type="gym"),
+        _envelope(
+            "membership_enrolled",
+            {"member_id": "m1", "monthly_fee": 49.0, "tax_amount": 4.9, "tax_type": "GST"},
+            0,
+            business_type="gym",
+        ),
+        _envelope(
+            "membership_enrolled",
+            {"member_id": "m2", "monthly_fee": 79.0, "tax_amount": 7.9, "tax_type": "GST"},
+            1,
+            business_type="gym",
+        ),
         _envelope("check_in_recorded", {"member_id": "m1"}, 2, business_type="gym"),
         _envelope("class_booked", {"member_id": "m1", "class_id": "c1"}, 3, business_type="gym"),
         _envelope("class_cancelled", {"member_id": "m1", "class_id": "c1"}, 4, business_type="gym"),
-        _envelope("retail_purchase_made", {"member_id": "m2", "total": 12.0}, 5, business_type="gym"),
-        _envelope("payment_failed", {"member_id": "m1"}, 6, business_type="gym"),
-        _envelope("membership_renewed", {"member_id": "m1", "monthly_fee": 49.0}, 7, business_type="gym"),
-        _envelope("membership_upgraded", {"member_id": "m1"}, 8, business_type="gym"),
-        _envelope("membership_downgraded", {"member_id": "m2"}, 9, business_type="gym"),
+        _envelope(
+            "retail_purchase_made",
+            {"member_id": "m2", "subtotal": 10.91, "tax_amount": 1.09, "tax_type": "GST", "total": 12.0},
+            5,
+            business_type="gym",
+        ),
+        _envelope(
+            "payment_failed",
+            {"member_id": "m1", "amount": 49.0, "tax_amount": 4.9, "tax_type": "GST"},
+            6,
+            business_type="gym",
+        ),
+        _envelope(
+            "membership_renewed",
+            {"member_id": "m1", "monthly_fee": 49.0, "tax_amount": 4.9, "tax_type": "GST"},
+            7,
+            business_type="gym",
+        ),
+        _envelope(
+            "membership_upgraded",
+            {"member_id": "m1", "new_monthly_fee": 79.0, "tax_amount": 7.9, "tax_type": "GST"},
+            8,
+            business_type="gym",
+        ),
+        _envelope(
+            "membership_downgraded",
+            {"member_id": "m2", "new_monthly_fee": 49.0, "tax_amount": 4.9, "tax_type": "GST"},
+            9,
+            business_type="gym",
+        ),
         _envelope("membership_cancelled", {"member_id": "m2"}, 10, business_type="gym"),
     ]
 
@@ -239,9 +300,24 @@ def test_kpi_clinic():
         _envelope("diagnosis_recorded", {"encounter_id": "e1", "patient_id": "p1"}, 4, business_type="clinic"),
         _envelope("lab_order_placed", {"lab_order_id": "lo1", "encounter_id": "e1", "patient_id": "p1"}, 5, business_type="clinic"),
         _envelope("lab_result_received", {"lab_order_id": "lo1", "patient_id": "p1"}, 6, business_type="clinic"),
-        _envelope("claim_submitted", {"claim_id": "c1", "encounter_id": "e1", "patient_id": "p1", "billed_amount": 200.0}, 7, business_type="clinic"),
-        _envelope("claim_adjudicated", {"claim_id": "c1", "status": "paid", "paid_amount": 180.0}, 8, business_type="clinic"),
-        _envelope("payment_posted", {"claim_id": "c1", "patient_id": "p1", "amount": 20.0}, 9, business_type="clinic"),
+        _envelope(
+            "claim_submitted",
+            {"claim_id": "c1", "encounter_id": "e1", "patient_id": "p1", "billed_amount": 200.0, "tax_amount": 20.0, "tax_type": "GST"},
+            7,
+            business_type="clinic",
+        ),
+        _envelope(
+            "claim_adjudicated",
+            {"claim_id": "c1", "status": "paid", "paid_amount": 180.0, "tax_amount": 20.0, "tax_type": "GST"},
+            8,
+            business_type="clinic",
+        ),
+        _envelope(
+            "payment_posted",
+            {"claim_id": "c1", "patient_id": "p1", "amount": 20.0, "tax_amount": 2.0, "tax_type": "GST"},
+            9,
+            business_type="clinic",
+        ),
         _envelope("referral_sent", {"referral_id": "r1", "encounter_id": "e1", "patient_id": "p1"}, 10, business_type="clinic"),
     ]
 
@@ -290,8 +366,18 @@ def test_kpi_trades():
         _envelope("estimate_requested", {"estimate_id": "e1", "ticket_id": "t1"}, 1, business_type="field_service"),
         _envelope("estimate_approved", {"estimate_id": "e2", "ticket_id": "t1"}, 2, business_type="field_service"),
         _envelope("work_completed", {"ticket_id": "t1"}, 3, business_type="field_service"),
-        _envelope("invoice_generated", {"invoice_id": "i1", "ticket_id": "t1", "total": 200.0}, 4, business_type="field_service"),
-        _envelope("payment_received", {"invoice_id": "i1", "ticket_id": "t1", "amount": 200.0}, 5, business_type="field_service"),
+        _envelope(
+            "invoice_generated",
+            {"invoice_id": "i1", "ticket_id": "t1", "tax_amount": 20.0, "tax_type": "GST", "total": 220.0},
+            4,
+            business_type="field_service",
+        ),
+        _envelope(
+            "payment_received",
+            {"invoice_id": "i1", "ticket_id": "t1", "amount": 220.0, "tax_amount": 20.0, "tax_type": "GST"},
+            5,
+            business_type="field_service",
+        ),
         _envelope("parts_used", {"ticket_id": "t1", "part_id": "p1", "qty": 2}, 6, business_type="field_service"),
         _envelope("follow_up_scheduled", {"ticket_id": "t1"}, 7, business_type="field_service"),
     ]
@@ -302,8 +388,8 @@ def test_kpi_trades():
         assert metrics["tickets_completed"] == 1
         assert metrics["invoices_generated"] == 1
         assert metrics["payments_received"] == 1
-        assert metrics["invoiced_total"] == 200.0
-        assert metrics["payments_total"] == 200.0
+        assert metrics["invoiced_total"] == 220.0
+        assert metrics["payments_total"] == 220.0
         assert metrics["collection_rate"] == 1.0
         assert metrics["estimates_requested"] == 1
         assert metrics["estimates_approved"] == 1
@@ -315,8 +401,16 @@ def test_artifacts_written(tmp_path: Path):
     adapter = _make_adapter()
     _append(
         adapter,
-        _envelope("order_placed", {"order_id": "o1", "total": 10.0}, 0),
-        _envelope("payment_processed", {"amount": 10.0, "status": "approved"}, 1),
+        _envelope(
+            "order_placed",
+            {"order_id": "o1", "subtotal": 10.0, "tax_amount": 1.0, "tax_type": "GST", "total": 11.0},
+            0,
+        ),
+        _envelope(
+            "payment_processed",
+            {"amount": 11.0, "tax_amount": 1.0, "tax_type": "GST", "status": "approved"},
+            1,
+        ),
     )
     report = analyze_stream(adapter, storage_backend="memory", storage_uri="memory://")
 
@@ -349,7 +443,7 @@ def test_cli_insights_ndjson(tmp_path: Path):
             timestamp=datetime(2026, 8, 1, 12, 0, 0, tzinfo=timezone.utc),
             business_type="ecommerce",
             event_type="order_placed",
-            payload={"order_id": "o1", "total": 25.0},
+            payload={"order_id": "o1", "subtotal": 25.0, "tax_amount": 2.5, "tax_type": "GST", "total": 27.5},
             stream_id="ndj_stream",
             sequence=0,
         )
@@ -360,7 +454,7 @@ def test_cli_insights_ndjson(tmp_path: Path):
             timestamp=datetime(2026, 8, 1, 12, 0, 1, tzinfo=timezone.utc),
             business_type="ecommerce",
             event_type="payment_processed",
-            payload={"order_id": "o1", "amount": 25.0, "status": "approved"},
+            payload={"order_id": "o1", "amount": 27.5, "tax_amount": 2.5, "tax_type": "GST", "status": "approved"},
             stream_id="ndj_stream",
             sequence=1,
         )
@@ -391,7 +485,7 @@ def test_cli_insights_ndjson(tmp_path: Path):
     data = json.loads(report_path.read_text())
     assert data["overview"]["event_count"] == 2
     assert data["business_kpis"]["business_type"] == "ecommerce"
-    assert data["business_kpis"]["metrics"]["revenue"] == 25.0
+    assert data["business_kpis"]["metrics"]["revenue"] == 27.5
 
 
 def test_cli_insights_format_json_only(tmp_path: Path):

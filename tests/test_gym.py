@@ -89,6 +89,26 @@ class _ListAdapter:
         pass
 
 
+def test_retail_purchase_includes_tax():
+    config = SimulatorConfig(business_type="gym", duration_seconds=5.0, events_per_second=50.0, seed=17)
+    sim = GymSimulator()
+    sim.configure(config)
+    sim.initialize(config.seed)
+    clock = Clock(tick_seconds=1.0 / config.events_per_second)
+    purchase = None
+    for _ in range(120):
+        event = sim.next_event(clock)
+        if event["event_type"] == "retail_purchase_made":
+            purchase = event
+            break
+        clock.advance()
+    assert purchase is not None
+    payload = purchase["payload"]
+    assert "tax_amount" in payload
+    assert payload["tax_type"] == "GST"
+    assert payload["total"] == round(payload["subtotal"] + payload["tax_amount"], 2)
+
+
 def _collect_event_types(config: SimulatorConfig) -> list[str]:
     sim = GymSimulator()
     sim.configure(config)

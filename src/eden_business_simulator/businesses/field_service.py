@@ -8,7 +8,11 @@ from typing import Any
 
 from faker import Faker
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    BusinessSimulator,
+    DEFAULT_TAX_TYPE,
+    compute_tax,
+)
 from eden_business_simulator.framework.actors import ActorPool
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
@@ -256,6 +260,7 @@ class FieldServiceSimulator(BusinessSimulator):
         labor_estimate = round(self.rng.uniform(60.0, 200.0), 2)
         parts_estimate = round(self.rng.uniform(10.0, 120.0), 2)
         total_estimate = round(labor_estimate + parts_estimate, 2)
+        tax_amount = compute_tax(total_estimate)
         return {
             "event_type": "estimate_approved",
             "payload": {
@@ -265,6 +270,8 @@ class FieldServiceSimulator(BusinessSimulator):
                 "labor_estimate": labor_estimate,
                 "parts_estimate": parts_estimate,
                 "total_estimate": total_estimate,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "approved_at": clock.now.isoformat(),
             },
         }
@@ -410,6 +417,7 @@ class FieldServiceSimulator(BusinessSimulator):
             "labor_amount": labor,
             "parts_amount": parts,
             "tax_amount": tax,
+            "tax_type": DEFAULT_TAX_TYPE,
             "total": total,
             "status": "open",
         }
@@ -423,6 +431,7 @@ class FieldServiceSimulator(BusinessSimulator):
                 "labor_amount": labor,
                 "parts_amount": parts,
                 "tax_amount": tax,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "total": total,
                 "generated_at": clock.now.isoformat(),
             },
@@ -441,6 +450,8 @@ class FieldServiceSimulator(BusinessSimulator):
                 "invoice_id": invoice["invoice_id"],
                 "ticket_id": invoice["ticket_id"],
                 "amount": invoice["total"],
+                "tax_amount": invoice["tax_amount"],
+                "tax_type": invoice["tax_type"],
                 "method": self.rng.choice(["card", "cash", "check"]),
                 "status": "settled",
                 "received_at": clock.now.isoformat(),

@@ -8,7 +8,11 @@ from typing import Any
 
 from faker import Faker
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    BusinessSimulator,
+    DEFAULT_TAX_TYPE,
+    compute_tax,
+)
 from eden_business_simulator.models import Clock
 
 
@@ -162,6 +166,9 @@ class EcommerceSimulator(BusinessSimulator):
                     "customer_id": customer["customer_id"],
                     "items": order["items"],
                     "placed_at": order["placed_at"].isoformat(),
+                    "subtotal": order["subtotal"],
+                    "tax_amount": order["tax_amount"],
+                    "tax_type": order["tax_type"],
                     "total": order["total"],
                     "currency": order["currency"],
                 },
@@ -183,6 +190,8 @@ class EcommerceSimulator(BusinessSimulator):
                     "order_id": order["order_id"],
                     "payment_id": order["payment_id"],
                     "amount": order["total"],
+                    "tax_amount": order["tax_amount"],
+                    "tax_type": order["tax_type"],
                     "currency": order["currency"],
                     "status": status,
                     "processed_at": clock.now.isoformat(),
@@ -231,6 +240,8 @@ class EcommerceSimulator(BusinessSimulator):
                 "payload": {
                     "order_id": order["order_id"],
                     "amount": order["total"],
+                    "tax_amount": order["tax_amount"],
+                    "tax_type": order["tax_type"],
                     "currency": order["currency"],
                     "reason": self.rng.choice(["defective", "not_as_described", "changed_mind"]),
                     "issued_at": clock.now.isoformat(),
@@ -325,11 +336,17 @@ class EcommerceSimulator(BusinessSimulator):
 
         self.order_counter += 1
         currency = self.rng.choice(self._CURRENCIES)
+        subtotal = round(total, 2)
+        tax_amount = compute_tax(subtotal)
+        order_total = round(subtotal + tax_amount, 2)
         order = {
             "order_id": f"ord_{self.order_counter:06d}",
             "customer_id": customer_id,
             "items": items,
-            "total": round(total, 2),
+            "subtotal": subtotal,
+            "tax_amount": tax_amount,
+            "tax_type": DEFAULT_TAX_TYPE,
+            "total": order_total,
             "currency": currency,
             "status": "placed",
             "placed_at": clock.now,

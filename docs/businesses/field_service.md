@@ -70,6 +70,8 @@ The customer approves the estimate and work can proceed.
   "labor_estimate": 120.0,
   "parts_estimate": 45.0,
   "total_estimate": 165.0,
+  "tax_amount": 16.5,
+  "tax_type": "GST",
   "approved_at": "2026-08-02T13:21:16.850428+00:00"
 }
 ```
@@ -172,6 +174,7 @@ The customer approves the estimate and work can proceed.
   "labor_amount": 130.77,
   "parts_amount": 83.26,
   "tax_amount": 21.4,
+  "tax_type": "GST",
   "total": 235.43,
   "generated_at": "2026-08-02T13:21:17.550428+00:00"
 }
@@ -185,6 +188,8 @@ The customer approves the estimate and work can proceed.
   "invoice_id": "inv_0001",
   "ticket_id": "tkt_0001",
   "amount": 235.43,
+  "tax_amount": 21.4,
+  "tax_type": "GST",
   "method": "cash",
   "status": "settled",
   "received_at": "2026-08-02T13:21:18.450428+00:00"

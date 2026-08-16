@@ -69,10 +69,18 @@ def test_order_lifecycle():
     customer, order = sim._place_order(clock)
     assert order["status"] == "placed"
     assert order["total"] > 0
+    assert order["tax_amount"] == round(order["subtotal"] * 0.1, 2)
+    assert order["tax_type"] == "GST"
+    assert order["total"] == round(order["subtotal"] + order["tax_amount"], 2)
     assert not sim.carts[customer["customer_id"]]
 
     # Process payment.
     event = sim.next_event(clock)
     while event["event_type"] != "payment_processed":
         event = sim.next_event(clock)
+    payment_order = next(
+        o for o in sim.orders if o["order_id"] == event["payload"]["order_id"]
+    )
     assert event["payload"]["status"] in ("approved", "declined")
+    assert event["payload"]["tax_amount"] == payment_order["tax_amount"]
+    assert event["payload"]["tax_type"] == "GST"

@@ -228,6 +228,8 @@ A delivery is confirmed as successfully completed.
   "vehicle_id": "vh_0001",
   "liters": 25.0,
   "cost": 41.16,
+  "tax_amount": 4.12,
+  "tax_type": "GST",
   "location": {
     "lat": -35.5113,
     "lon": 140.4917

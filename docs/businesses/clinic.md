@@ -210,6 +210,8 @@ The clinic simulator models outpatient healthcare workflows. Patients schedule a
     "99395"
   ],
   "billed_amount": 175.84,
+  "tax_amount": 17.58,
+  "tax_type": "GST",
   "submitted_at": "2026-08-02T13:21:18.730916+00:00"
 }
 ```
@@ -222,6 +224,8 @@ The clinic simulator models outpatient healthcare workflows. Patients schedule a
   "status": "denied",
   "paid_amount": 0.0,
   "patient_responsibility": 175.84,
+  "tax_amount": 17.58,
+  "tax_type": "GST",
   "adjudicated_at": "2026-08-02T13:21:19.230916+00:00"
 }
 ```
@@ -234,6 +238,8 @@ The clinic simulator models outpatient healthcare workflows. Patients schedule a
   "claim_id": "clm_0001",
   "patient_id": "patient_0001",
   "amount": 95.28,
+  "tax_amount": 9.53,
+  "tax_type": "GST",
   "method": "cash",
   "posted_at": "2026-08-02T13:21:20.030916+00:00"
 }

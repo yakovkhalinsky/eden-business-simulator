@@ -9,6 +9,15 @@ from eden_business_simulator.config import SimulatorConfig
 from eden_business_simulator.models import Clock
 
 
+DEFAULT_TAX_RATE = 0.10
+DEFAULT_TAX_TYPE = "GST"
+
+
+def compute_tax(amount: float, tax_rate: float = DEFAULT_TAX_RATE) -> float:
+    """Return the tax component for a monetary amount using the given rate."""
+    return round(float(amount) * tax_rate, 2)
+
+
 class BusinessSimulator(ABC):
     """One business domain that can produce a realistic event stream."""
 

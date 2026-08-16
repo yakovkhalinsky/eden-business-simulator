@@ -8,7 +8,11 @@ from typing import Any
 
 from faker import Faker
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    BusinessSimulator,
+    DEFAULT_TAX_TYPE,
+    compute_tax,
+)
 from eden_business_simulator.models import Clock
 
 
@@ -129,6 +133,8 @@ class SaaSSimulator(BusinessSimulator):
                     "subscription_id": subscription_id,
                     "plan_name": plan_name,
                     "monthly_fee": monthly_fee,
+                    "tax_amount": compute_tax(monthly_fee),
+                    "tax_type": DEFAULT_TAX_TYPE,
                     "billing_interval": billing_interval,
                     "subscribed_at": clock.now.isoformat(),
                 },
@@ -154,12 +160,14 @@ class SaaSSimulator(BusinessSimulator):
             invoice_id = f"inv_{self.invoice_counter:06d}"
             subscription = self.subscriptions.get(account["account_id"])
             monthly_fee = subscription["monthly_fee"] if subscription else 49.0
-            tax = round(monthly_fee * 0.1, 2)
-            total = round(monthly_fee + tax, 2)
+            tax_amount = compute_tax(monthly_fee)
+            total = round(monthly_fee + tax_amount, 2)
             invoice = {
                 "invoice_id": invoice_id,
                 "account_id": account["account_id"],
                 "amount": total,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "status": "open",
             }
             self.invoices.append(invoice)
@@ -175,10 +183,12 @@ class SaaSSimulator(BusinessSimulator):
                         },
                         {
                             "description": "tax",
-                            "amount": tax,
+                            "amount": tax_amount,
                         },
                     ],
                     "total": total,
+                    "tax_amount": tax_amount,
+                    "tax_type": DEFAULT_TAX_TYPE,
                     "due_date": (clock.now + self.rng.choice([
                         timedelta(days=7),
                         timedelta(days=14),
@@ -203,6 +213,8 @@ class SaaSSimulator(BusinessSimulator):
                     "account_id": account["account_id"],
                     "invoice_id": invoice["invoice_id"],
                     "amount": invoice["amount"],
+                    "tax_amount": invoice["tax_amount"],
+                    "tax_type": invoice["tax_type"],
                     "currency": "USD",
                     "payment_method": self.rng.choice(["card", "ach", "wire"]),
                     "succeeded_at": clock.now.isoformat(),
@@ -218,6 +230,8 @@ class SaaSSimulator(BusinessSimulator):
                     "account_id": account["account_id"],
                     "subscription_id": subscription["subscription_id"] if subscription else None,
                     "amount": amount,
+                    "tax_amount": compute_tax(amount),
+                    "tax_type": DEFAULT_TAX_TYPE,
                     "currency": "USD",
                     "failure_reason": self.rng.choice(["insufficient_funds", "expired_card", "bank_declined"]),
                     "attempt_number": self.rng.randint(1, 3),
@@ -301,12 +315,14 @@ class SaaSSimulator(BusinessSimulator):
         invoice_id = f"inv_{self.invoice_counter:06d}"
         subscription = self.subscriptions.get(account["account_id"])
         monthly_fee = subscription["monthly_fee"] if subscription else 49.0
-        tax = round(monthly_fee * 0.1, 2)
-        total = round(monthly_fee + tax, 2)
+        tax_amount = compute_tax(monthly_fee)
+        total = round(monthly_fee + tax_amount, 2)
         invoice = {
             "invoice_id": invoice_id,
             "account_id": account["account_id"],
             "amount": total,
+            "tax_amount": tax_amount,
+            "tax_type": DEFAULT_TAX_TYPE,
             "status": "open",
         }
         self.invoices.append(invoice)
@@ -317,9 +333,11 @@ class SaaSSimulator(BusinessSimulator):
                 "account_id": account["account_id"],
                 "line_items": [
                     {"description": "subscription", "amount": monthly_fee},
-                    {"description": "tax", "amount": tax},
+                    {"description": "tax", "amount": tax_amount},
                 ],
                 "total": total,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "due_date": (clock.now + self.rng.choice([
                     timedelta(days=7),
                     timedelta(days=14),
