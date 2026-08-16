@@ -99,6 +99,7 @@ class LogisticsSimulator(BusinessSimulator):
             "vehicle_departed",
             "stop_arrived",
             "delivery_attempted",
+            "delivery_delivered",
             "proof_of_delivery_captured",
             "delivery_exception_recorded",
             "customer_feedback_received",
@@ -248,6 +249,11 @@ class LogisticsSimulator(BusinessSimulator):
             "delivery_attempted",
             base_weight=8.0,
             guard=has_unattempted_stops,
+        )
+        self.catalog.register(
+            "delivery_delivered",
+            base_weight=6.0,
+            guard=has_delivered,
         )
         self.catalog.register(
             "proof_of_delivery_captured",
@@ -491,6 +497,23 @@ class LogisticsSimulator(BusinessSimulator):
                 "shipment_id": shipment["shipment_id"],
                 "outcome": outcome,
                 "attempted_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_delivery_delivered(self, clock: Clock) -> dict[str, Any]:
+        delivered = [a for a in self.attempts if a["outcome"] == "delivered"]
+        if not delivered:
+            return self._emit_delivery_attempted(clock)
+        attempt = self.rng.choice(delivered)
+        return {
+            "event_type": "delivery_delivered",
+            "payload": {
+                "delivery_id": self.id_gen.next("dlv"),
+                "shipment_id": attempt["shipment_id"],
+                "attempt_id": attempt["attempt_id"],
+                "stop_id": attempt["stop_id"],
+                "delivered_at": clock.now.isoformat(),
+                "recipient_name": self.faker.name(),
             },
         }
 

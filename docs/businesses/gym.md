@@ -217,6 +217,46 @@ The gym simulator models a fitness studio. Members enroll, check in, book and at
 }
 ```
 
+### `membership_renewed`
+
+```json
+{
+  "member_id": "member_0001",
+  "membership_id": "mbr_0001",
+  "tier": "standard",
+  "monthly_fee": 49.0,
+  "renewal_term_months": 12,
+  "renewed_at": "2026-08-02T13:21:18.093586+00:00"
+}
+```
+
+### `membership_upgraded`
+
+```json
+{
+  "member_id": "member_0002",
+  "membership_id": "mbr_0002",
+  "previous_tier": "basic",
+  "new_tier": "premium",
+  "new_monthly_fee": 79.0,
+  "upgraded_at": "2026-08-02T13:21:18.193586+00:00"
+}
+```
+
+### `membership_downgraded`
+
+```json
+{
+  "member_id": "member_0003",
+  "membership_id": "mbr_0003",
+  "previous_tier": "premium",
+  "new_tier": "standard",
+  "new_monthly_fee": 49.0,
+  "reason": "cost",
+  "downgraded_at": "2026-08-02T13:21:18.293586+00:00"
+}
+```
+
 ### `membership_frozen`
 
 ```json

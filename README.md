@@ -27,7 +27,7 @@ uv run eden-business-simulator run ecommerce --duration 30 --rate 5 --seed 42 --
 - `gym` — fitness studio events (memberships, check-ins, class booking/attendance, PT sessions, workouts, progress, retail, billing, churn)
 - `plumber` — dispatched plumbing trade events (tickets, assignment, dispatch, diagnosis, parts, work completion, invoices, payments, follow-ups)
 - `logistics` — last-mile delivery events (shipments, routes, drivers, stops, delivery attempts, POD, exceptions, feedback, returns, fuel)
-- `saas` — minimal SaaS stub (account signup and feature usage)
+- `saas` — SaaS subscription business (account signup, plans, feature usage, invoices, payments, support tickets, churn)
 
 ## Output modes
 

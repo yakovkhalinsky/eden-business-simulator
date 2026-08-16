@@ -74,6 +74,35 @@ Items are added to or changed in a cart.
 }
 ```
 
+### `checkout_started`
+
+A customer begins the checkout process from a non-empty cart.
+
+```json
+{
+  "customer_id": "cust_0002",
+  "cart_items": [
+    {
+      "product_id": "prod_0000",
+      "quantity": 2
+    }
+  ],
+  "started_at": "2026-08-02T13:21:11.996917+00:00"
+}
+```
+
+### `payment_info_entered`
+
+A customer enters payment details during checkout.
+
+```json
+{
+  "customer_id": "cust_0002",
+  "payment_method": "card",
+  "entered_at": "2026-08-02T13:21:12.096917+00:00"
+}
+```
+
 ### `order_placed`
 
 A cart becomes an order.
