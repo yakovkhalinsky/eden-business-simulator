@@ -178,7 +178,10 @@ The cafe simulator models a small hospitality venue across a single shift. It co
   "payment_id": "pay_0001",
   "order_id": "ord_0010",
   "amount": 6.0,
+  "tax_amount": 0.6,
+  "tax_type": "GST",
   "tip": 1.2,
+  "total": 7.8,
   "method": "card",
   "paid_at": "2026-08-02T13:21:22.729580+00:00"
 }

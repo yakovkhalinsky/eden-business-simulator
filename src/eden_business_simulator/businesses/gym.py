@@ -8,7 +8,11 @@ from typing import Any
 
 from faker import Faker
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    BusinessSimulator,
+    DEFAULT_TAX_TYPE,
+    compute_tax,
+)
 from eden_business_simulator.framework.actors import ActorPool, StaffRoster
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
@@ -353,13 +357,16 @@ class GymSimulator(BusinessSimulator):
 
     def _emit_membership_enrolled(self, clock: Clock) -> dict[str, Any]:
         membership = self._create_member()
+        monthly_fee = membership["monthly_fee"]
         return {
             "event_type": "membership_enrolled",
             "payload": {
                 "member_id": membership["member_id"],
                 "membership_id": membership["membership_id"],
                 "tier": membership["tier"],
-                "monthly_fee": membership["monthly_fee"],
+                "monthly_fee": monthly_fee,
+                "tax_amount": compute_tax(monthly_fee),
+                "tax_type": DEFAULT_TAX_TYPE,
                 "start_date": clock.now.date().isoformat(),
                 "enrolled_at": clock.now.isoformat(),
             },
@@ -592,8 +599,8 @@ class GymSimulator(BusinessSimulator):
         item = self.rng.choice(self._RETAIL_SKUS)
         qty = self.rng.randint(1, 3)
         subtotal = round(item[2] * qty, 2)
-        tax = round(subtotal * 0.1, 2)
-        total = round(subtotal + tax, 2)
+        tax_amount = compute_tax(subtotal)
+        total = round(subtotal + tax_amount, 2)
         return {
             "event_type": "retail_purchase_made",
             "payload": {
@@ -603,7 +610,8 @@ class GymSimulator(BusinessSimulator):
                     {"sku": item[0], "name": item[1], "qty": qty, "unit_price": item[2]}
                 ],
                 "subtotal": subtotal,
-                "tax": tax,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "total": total,
                 "payment_method": self.rng.choice(["card", "cash", "app"]),
                 "purchased_at": clock.now.isoformat(),
@@ -620,10 +628,14 @@ class GymSimulator(BusinessSimulator):
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
         membership = self.memberships[member_id]
+        amount = membership["monthly_fee"]
+        tax_amount = compute_tax(amount)
         failure = {
             "member_id": member_id,
             "membership_id": membership["membership_id"],
-            "amount": membership["monthly_fee"],
+            "amount": amount,
+            "tax_amount": tax_amount,
+            "tax_type": DEFAULT_TAX_TYPE,
             "reason": self.rng.choice(
                 ["insufficient_funds", "expired_card", "bank_declined"]
             ),
@@ -636,7 +648,9 @@ class GymSimulator(BusinessSimulator):
                 "payment_id": self.id_gen.next("pay"),
                 "member_id": member_id,
                 "membership_id": membership["membership_id"],
-                "amount": membership["monthly_fee"],
+                "amount": amount,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "failure_reason": failure["reason"],
                 "retry_attempt": len(
                     [p for p in self.payments_failed if p["member_id"] == member_id]
@@ -670,13 +684,16 @@ class GymSimulator(BusinessSimulator):
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
         membership = self.memberships[member_id]
+        monthly_fee = membership["monthly_fee"]
         return {
             "event_type": "membership_renewed",
             "payload": {
                 "member_id": member_id,
                 "membership_id": membership["membership_id"],
                 "tier": membership["tier"],
-                "monthly_fee": membership["monthly_fee"],
+                "monthly_fee": monthly_fee,
+                "tax_amount": compute_tax(monthly_fee),
+                "tax_type": DEFAULT_TAX_TYPE,
                 "renewal_term_months": self.rng.choice([1, 3, 6, 12]),
                 "renewed_at": clock.now.isoformat(),
             },
@@ -697,7 +714,8 @@ class GymSimulator(BusinessSimulator):
         new_tier = self.rng.choice(higher_tiers)
         plan = self._PLANS[new_tier]
         membership["tier"] = new_tier
-        membership["monthly_fee"] = plan["monthly_fee"]
+        new_monthly_fee = plan["monthly_fee"]
+        membership["monthly_fee"] = new_monthly_fee
         return {
             "event_type": "membership_upgraded",
             "payload": {
@@ -705,7 +723,9 @@ class GymSimulator(BusinessSimulator):
                 "membership_id": membership["membership_id"],
                 "previous_tier": current_tier,
                 "new_tier": new_tier,
-                "new_monthly_fee": plan["monthly_fee"],
+                "new_monthly_fee": new_monthly_fee,
+                "tax_amount": compute_tax(new_monthly_fee),
+                "tax_type": DEFAULT_TAX_TYPE,
                 "upgraded_at": clock.now.isoformat(),
             },
         }
@@ -725,7 +745,8 @@ class GymSimulator(BusinessSimulator):
         new_tier = self.rng.choice(lower_tiers)
         plan = self._PLANS[new_tier]
         membership["tier"] = new_tier
-        membership["monthly_fee"] = plan["monthly_fee"]
+        new_monthly_fee = plan["monthly_fee"]
+        membership["monthly_fee"] = new_monthly_fee
         return {
             "event_type": "membership_downgraded",
             "payload": {
@@ -733,7 +754,9 @@ class GymSimulator(BusinessSimulator):
                 "membership_id": membership["membership_id"],
                 "previous_tier": current_tier,
                 "new_tier": new_tier,
-                "new_monthly_fee": plan["monthly_fee"],
+                "new_monthly_fee": new_monthly_fee,
+                "tax_amount": compute_tax(new_monthly_fee),
+                "tax_type": DEFAULT_TAX_TYPE,
                 "reason": self.rng.choice(["cost", "usage", "seasonal"]),
                 "downgraded_at": clock.now.isoformat(),
             },

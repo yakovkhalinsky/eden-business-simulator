@@ -39,6 +39,8 @@ The gym simulator models a fitness studio. Members enroll, check in, book and at
   "membership_id": "mbr_0007",
   "tier": "basic",
   "monthly_fee": 29.0,
+  "tax_amount": 2.9,
+  "tax_type": "GST",
   "start_date": "2026-08-02",
   "enrolled_at": "2026-08-02T13:21:14.693586+00:00"
 }
@@ -184,7 +186,8 @@ The gym simulator models a fitness studio. Members enroll, check in, book and at
     }
   ],
   "subtotal": 54.0,
-  "tax": 5.4,
+  "tax_amount": 5.4,
+  "tax_type": "GST",
   "total": 59.4,
   "payment_method": "cash",
   "purchased_at": "2026-08-02T13:21:15.893586+00:00"
@@ -199,6 +202,8 @@ The gym simulator models a fitness studio. Members enroll, check in, book and at
   "member_id": "member_0006",
   "membership_id": "mbr_0006",
   "amount": 49.0,
+  "tax_amount": 4.9,
+  "tax_type": "GST",
   "failure_reason": "expired_card",
   "retry_attempt": 1,
   "failed_at": "2026-08-02T13:21:15.993586+00:00"
@@ -225,6 +230,8 @@ The gym simulator models a fitness studio. Members enroll, check in, book and at
   "membership_id": "mbr_0001",
   "tier": "standard",
   "monthly_fee": 49.0,
+  "tax_amount": 4.9,
+  "tax_type": "GST",
   "renewal_term_months": 12,
   "renewed_at": "2026-08-02T13:21:18.093586+00:00"
 }
@@ -239,6 +246,8 @@ The gym simulator models a fitness studio. Members enroll, check in, book and at
   "previous_tier": "basic",
   "new_tier": "premium",
   "new_monthly_fee": 79.0,
+  "tax_amount": 7.9,
+  "tax_type": "GST",
   "upgraded_at": "2026-08-02T13:21:18.193586+00:00"
 }
 ```
@@ -252,6 +261,8 @@ The gym simulator models a fitness studio. Members enroll, check in, book and at
   "previous_tier": "premium",
   "new_tier": "standard",
   "new_monthly_fee": 49.0,
+  "tax_amount": 4.9,
+  "tax_type": "GST",
   "reason": "cost",
   "downgraded_at": "2026-08-02T13:21:18.293586+00:00"
 }

@@ -8,7 +8,11 @@ from typing import Any
 
 from faker import Faker
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    BusinessSimulator,
+    DEFAULT_TAX_TYPE,
+    compute_tax,
+)
 from eden_business_simulator.framework.actors import ActorPool
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
@@ -472,12 +476,16 @@ class ClinicSimulator(BusinessSimulator):
         encounter = self.rng.choice(diagnosed)
         encounter["claim_submitted"] = True
         claim_id = self.id_gen.next("clm")
+        billed_amount = round(self.rng.uniform(100.0, 350.0), 2)
+        tax_amount = compute_tax(billed_amount)
         claim = {
             "claim_id": claim_id,
             "encounter_id": encounter["encounter_id"],
             "patient_id": encounter["patient_id"],
             "status": "submitted",
-            "amount": round(self.rng.uniform(100.0, 350.0), 2),
+            "amount": billed_amount,
+            "tax_amount": tax_amount,
+            "tax_type": DEFAULT_TAX_TYPE,
         }
         self.claims.append(claim)
         return {
@@ -489,7 +497,9 @@ class ClinicSimulator(BusinessSimulator):
                 "payer_id": self.id_gen.next("ins"),
                 "diagnosis_codes": [self.rng.choice(self._ICD10)[0]],
                 "procedure_codes": [self.rng.choice(self._CPT)[0]],
-                "billed_amount": claim["amount"],
+                "billed_amount": billed_amount,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "submitted_at": clock.now.isoformat(),
             },
         }
@@ -502,6 +512,7 @@ class ClinicSimulator(BusinessSimulator):
         claim["status"] = "adjudicated"
         status = self.rng.choice(["paid", "denied", "partial"])
         paid = round(claim["amount"] * self.rng.uniform(0.7, 1.0), 2) if status != "denied" else 0.0
+        tax_amount = compute_tax(claim["amount"])
         return {
             "event_type": "claim_adjudicated",
             "payload": {
@@ -509,6 +520,8 @@ class ClinicSimulator(BusinessSimulator):
                 "status": status,
                 "paid_amount": paid,
                 "patient_responsibility": round(claim["amount"] - paid, 2),
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "adjudicated_at": clock.now.isoformat(),
             },
         }
@@ -518,13 +531,17 @@ class ClinicSimulator(BusinessSimulator):
         if not adjudicated:
             return self._emit_claim_adjudicated(clock)
         claim = self.rng.choice(adjudicated)
+        amount = round(self.rng.uniform(20.0, 100.0), 2)
+        tax_amount = compute_tax(amount)
         return {
             "event_type": "payment_posted",
             "payload": {
                 "payment_id": self.id_gen.next("pmt"),
                 "claim_id": claim["claim_id"],
                 "patient_id": claim["patient_id"],
-                "amount": round(self.rng.uniform(20.0, 100.0), 2),
+                "amount": amount,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "method": self.rng.choice(["card", "cash", "check"]),
                 "posted_at": clock.now.isoformat(),
             },

@@ -120,6 +120,38 @@ def test_lab_order_id_links_to_prior_order():
             assert result["lab_order_id"] in lab_orders, "lab_result_received must reference a prior lab_order_placed"
 
 
+def test_claim_and_payment_include_tax():
+    config = SimulatorConfig(
+        business_type="clinic", duration_seconds=5.0, events_per_second=50.0, seed=131
+    )
+    sim = ClinicSimulator()
+    sim.configure(config)
+    sim.initialize(config.seed)
+    clock = Clock(tick_seconds=1.0 / config.events_per_second)
+    claim_event = None
+    payment_event = None
+    for _ in range(400):
+        event = sim.next_event(clock)
+        if event["event_type"] == "claim_submitted" and claim_event is None:
+            claim_event = event
+        elif event["event_type"] == "payment_posted" and payment_event is None:
+            payment_event = event
+        if claim_event and payment_event:
+            break
+        clock.advance()
+
+    assert claim_event is not None
+    assert claim_event["payload"]["tax_type"] == "GST"
+    assert claim_event["payload"]["tax_amount"] == round(
+        claim_event["payload"]["billed_amount"] * 0.1, 2
+    )
+    assert payment_event is not None
+    assert payment_event["payload"]["tax_type"] == "GST"
+    assert payment_event["payload"]["tax_amount"] == round(
+        payment_event["payload"]["amount"] * 0.1, 2
+    )
+
+
 def _collect_event_types(config: SimulatorConfig) -> list[str]:
     sim = ClinicSimulator()
     sim.configure(config)

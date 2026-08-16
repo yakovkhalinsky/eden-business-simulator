@@ -95,6 +95,28 @@ def test_logistics_runner_smoke():
     assert all(e.business_type == "logistics" for e in adapter.events)
 
 
+def test_fuel_stop_includes_tax():
+    config = SimulatorConfig(
+        business_type="logistics", duration_seconds=5.0, events_per_second=50.0, seed=21
+    )
+    sim = LogisticsSimulator()
+    sim.configure(config)
+    sim.initialize(config.seed)
+    clock = Clock(tick_seconds=1.0 / config.events_per_second)
+    fuel = None
+    for _ in range(300):
+        event = sim.next_event(clock)
+        if event["event_type"] == "fuel_stop_logged":
+            fuel = event
+            break
+        clock.advance()
+    assert fuel is not None
+    payload = fuel["payload"]
+    assert "tax_amount" in payload
+    assert payload["tax_type"] == "GST"
+    assert payload["tax_amount"] == round(payload["cost"] * 0.1, 2)
+
+
 def _collect_event_types(config: SimulatorConfig) -> list[str]:
     sim = LogisticsSimulator()
     sim.configure(config)

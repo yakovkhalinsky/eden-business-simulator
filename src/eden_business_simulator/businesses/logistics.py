@@ -8,7 +8,11 @@ from typing import Any
 
 from faker import Faker
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    BusinessSimulator,
+    DEFAULT_TAX_TYPE,
+    compute_tax,
+)
 from eden_business_simulator.framework.actors import ActorPool
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
@@ -644,13 +648,17 @@ class LogisticsSimulator(BusinessSimulator):
             return self._emit_vehicle_departed(clock)
         route = self.rng.choice(active)
         liters = round(self.rng.uniform(20.0, 60.0), 1)
+        cost = round(liters * self.rng.uniform(1.6, 2.0), 2)
+        tax_amount = compute_tax(cost)
         return {
             "event_type": "fuel_stop_logged",
             "payload": {
                 "fuel_stop_id": self.id_gen.next("fs"),
                 "vehicle_id": route["vehicle_id"],
                 "liters": liters,
-                "cost": round(liters * self.rng.uniform(1.6, 2.0), 2),
+                "cost": cost,
+                "tax_amount": tax_amount,
+                "tax_type": DEFAULT_TAX_TYPE,
                 "location": {
                     "lat": round(self.rng.uniform(-38.0, -33.0), 4),
                     "lon": round(self.rng.uniform(140.0, 153.0), 4),

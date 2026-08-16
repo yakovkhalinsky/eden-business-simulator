@@ -120,6 +120,37 @@ def test_payment_invoice_id_links_to_prior_invoice():
             assert payment["invoice_id"] in invoices, "payment_received must reference a prior invoice_generated"
 
 
+def test_invoice_and_payment_include_tax():
+    config = SimulatorConfig(
+        business_type="field_service",
+        duration_seconds=5.0,
+        events_per_second=50.0,
+        seed=303,
+    )
+    sim = FieldServiceSimulator()
+    sim.configure(config)
+    sim.initialize(config.seed)
+    clock = Clock(tick_seconds=1.0 / config.events_per_second)
+    invoice_event = None
+    payment_event = None
+    for _ in range(300):
+        event = sim.next_event(clock)
+        if event["event_type"] == "invoice_generated" and invoice_event is None:
+            invoice_event = event
+        elif event["event_type"] == "payment_received" and payment_event is None:
+            payment_event = event
+        if invoice_event and payment_event:
+            break
+        clock.advance()
+
+    assert invoice_event is not None
+    assert invoice_event["payload"]["tax_type"] == "GST"
+    assert invoice_event["payload"]["tax_amount"] > 0
+    assert payment_event is not None
+    assert payment_event["payload"]["tax_type"] == "GST"
+    assert payment_event["payload"]["tax_amount"] == invoice_event["payload"]["tax_amount"]
+
+
 def _collect_event_types(config: SimulatorConfig) -> list[str]:
     sim = FieldServiceSimulator()
     sim.configure(config)

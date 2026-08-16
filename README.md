@@ -29,6 +29,8 @@ uv run eden-business-simulator run ecommerce --duration 30 --rate 5 --seed 42 --
 - `logistics` — last-mile delivery events (shipments, routes, drivers, stops, delivery attempts, POD, exceptions, feedback, returns, fuel)
 - `saas` — SaaS subscription business (account signup, plans, feature usage, invoices, payments, support tickets, churn)
 
+All monetary sale, invoice, and payment events include `tax_amount` and `tax_type` fields. The default tax is `GST` at 10%.
+
 ## Output modes
 
 - `ndjson` (default) — one JSON event envelope per line to stdout

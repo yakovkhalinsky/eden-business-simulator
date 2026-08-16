@@ -121,7 +121,10 @@ A cart becomes an order.
     }
   ],
   "placed_at": "2026-08-02T13:21:12.096917+00:00",
-  "total": 169.32,
+  "subtotal": 169.32,
+  "tax_amount": 16.93,
+  "tax_type": "GST",
+  "total": 186.25,
   "currency": "GBP"
 }
 ```
@@ -134,7 +137,9 @@ A payment attempt is approved or declined.
 {
   "order_id": "ord_000001",
   "payment_id": "pay_000001",
-  "amount": 169.32,
+  "amount": 186.25,
+  "tax_amount": 16.93,
+  "tax_type": "GST",
   "currency": "GBP",
   "status": "approved",
   "processed_at": "2026-08-02T13:21:12.196917+00:00"
@@ -177,6 +182,8 @@ A refund is issued for an order.
 {
   "order_id": "ord_000003",
   "amount": 134.98,
+  "tax_amount": 12.27,
+  "tax_type": "GST",
   "currency": "AUD",
   "reason": "defective",
   "issued_at": "2026-08-02T13:21:15.596917+00:00"

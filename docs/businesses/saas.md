@@ -47,6 +47,8 @@ The SaaS simulator models a subscription software business. Accounts sign up, su
   "subscription_id": "sub_0001",
   "plan_name": "growth",
   "monthly_fee": 79.0,
+  "tax_amount": 7.9,
+  "tax_type": "GST",
   "billing_interval": "month",
   "subscribed_at": "2026-08-02T13:21:12.868564+00:00"
 }
@@ -81,6 +83,8 @@ The SaaS simulator models a subscription software business. Accounts sign up, su
     }
   ],
   "total": 86.9,
+  "tax_amount": 7.9,
+  "tax_type": "GST",
   "due_date": "2026-08-09",
   "generated_at": "2026-08-02T13:21:13.267472+00:00"
 }
@@ -94,6 +98,8 @@ The SaaS simulator models a subscription software business. Accounts sign up, su
   "account_id": "acc_0001",
   "invoice_id": "inv_000001",
   "amount": 86.9,
+  "tax_amount": 7.9,
+  "tax_type": "GST",
   "currency": "USD",
   "payment_method": "card",
   "succeeded_at": "2026-08-02T13:21:14.067472+00:00"
@@ -107,6 +113,8 @@ The SaaS simulator models a subscription software business. Accounts sign up, su
   "account_id": "acc_0005",
   "subscription_id": "sub_0002",
   "amount": 29.0,
+  "tax_amount": 2.9,
+  "tax_type": "GST",
   "currency": "USD",
   "failure_reason": "expired_card",
   "attempt_number": 1,

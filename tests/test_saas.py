@@ -114,11 +114,19 @@ def test_saas_per_event_payloads():
 
     assert "plan_name" in seen["plan_subscribed"]
     assert "monthly_fee" in seen["plan_subscribed"]
+    assert "tax_amount" in seen["plan_subscribed"]
+    assert seen["plan_subscribed"]["tax_type"] == "GST"
     assert "invoice_id" in seen["invoice_generated"]
     assert "line_items" in seen["invoice_generated"]
+    assert "tax_amount" in seen["invoice_generated"]
+    assert seen["invoice_generated"]["tax_type"] == "GST"
     assert "invoice_id" in seen["payment_succeeded"]
     assert "payment_method" in seen["payment_succeeded"]
+    assert "tax_amount" in seen["payment_succeeded"]
+    assert seen["payment_succeeded"]["tax_type"] == "GST"
     assert "failure_reason" in seen["payment_failed"]
+    assert "tax_amount" in seen["payment_failed"]
+    assert seen["payment_failed"]["tax_type"] == "GST"
     assert "subject" in seen["support_ticket_opened"]
     assert "severity" in seen["support_ticket_opened"]
     assert "resolution" in seen["ticket_resolved"]
