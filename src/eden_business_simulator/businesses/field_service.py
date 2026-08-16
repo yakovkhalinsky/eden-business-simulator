@@ -42,6 +42,7 @@ class FieldServiceSimulator(BusinessSimulator):
         )
         self.customers: list[dict[str, Any]] = []
         self.tickets: list[dict[str, Any]] = []
+        self.invoices: list[dict[str, Any]] = []
         self.vehicles: list[dict[str, Any]] = []
         self.catalog = WeightedEventCatalog(self.rng)
 
@@ -58,6 +59,7 @@ class FieldServiceSimulator(BusinessSimulator):
         )
         self.customers = []
         self.tickets = []
+        self.invoices = []
         self.vehicles = []
         self.catalog = WeightedEventCatalog(self.rng)
 
@@ -73,6 +75,8 @@ class FieldServiceSimulator(BusinessSimulator):
     def available_event_types(self) -> list[str]:
         return [
             "service_ticket_created",
+            "estimate_requested",
+            "estimate_approved",
             "technician_assigned",
             "technician_dispatched",
             "technician_arrived",
@@ -133,6 +137,12 @@ class FieldServiceSimulator(BusinessSimulator):
 
         self.catalog.register(
             "service_ticket_created", base_weight=8.0, guard=has_customers
+        )
+        self.catalog.register(
+            "estimate_requested", base_weight=4.0, guard=has_open_tickets
+        )
+        self.catalog.register(
+            "estimate_approved", base_weight=3.0, guard=has_open_tickets
         )
         self.catalog.register(
             "technician_assigned", base_weight=6.0, guard=has_open_tickets
@@ -219,6 +229,43 @@ class FieldServiceSimulator(BusinessSimulator):
                 "category": ticket["category"],
                 "description": self.faker.sentence(nb_words=6),
                 "created_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_estimate_requested(self, clock: Clock) -> dict[str, Any]:
+        open_tickets = [t for t in self.tickets if t["status"] == "open"]
+        if not open_tickets:
+            return self._emit_service_ticket_created(clock)
+        ticket = self.rng.choice(open_tickets)
+        return {
+            "event_type": "estimate_requested",
+            "payload": {
+                "estimate_id": self.id_gen.next("est"),
+                "ticket_id": ticket["ticket_id"],
+                "customer_id": ticket["customer_id"],
+                "requested_at": clock.now.isoformat(),
+                "notes": self.faker.sentence(nb_words=8),
+            },
+        }
+
+    def _emit_estimate_approved(self, clock: Clock) -> dict[str, Any]:
+        open_tickets = [t for t in self.tickets if t["status"] == "open"]
+        if not open_tickets:
+            return self._emit_service_ticket_created(clock)
+        ticket = self.rng.choice(open_tickets)
+        labor_estimate = round(self.rng.uniform(60.0, 200.0), 2)
+        parts_estimate = round(self.rng.uniform(10.0, 120.0), 2)
+        total_estimate = round(labor_estimate + parts_estimate, 2)
+        return {
+            "event_type": "estimate_approved",
+            "payload": {
+                "estimate_id": self.id_gen.next("est"),
+                "ticket_id": ticket["ticket_id"],
+                "customer_id": ticket["customer_id"],
+                "labor_estimate": labor_estimate,
+                "parts_estimate": parts_estimate,
+                "total_estimate": total_estimate,
+                "approved_at": clock.now.isoformat(),
             },
         }
 
@@ -355,10 +402,22 @@ class FieldServiceSimulator(BusinessSimulator):
         parts = round(self.rng.uniform(15.0, 90.0), 2)
         tax = round((labor + parts) * 0.1, 2)
         total = round(labor + parts + tax, 2)
+        invoice_id = self.id_gen.next("inv")
+        invoice = {
+            "invoice_id": invoice_id,
+            "ticket_id": ticket["ticket_id"],
+            "customer_id": ticket["customer_id"],
+            "labor_amount": labor,
+            "parts_amount": parts,
+            "tax_amount": tax,
+            "total": total,
+            "status": "open",
+        }
+        self.invoices.append(invoice)
         return {
             "event_type": "invoice_generated",
             "payload": {
-                "invoice_id": self.id_gen.next("inv"),
+                "invoice_id": invoice_id,
                 "ticket_id": ticket["ticket_id"],
                 "customer_id": ticket["customer_id"],
                 "labor_amount": labor,
@@ -370,16 +429,18 @@ class FieldServiceSimulator(BusinessSimulator):
         }
 
     def _emit_payment_received(self, clock: Clock) -> dict[str, Any]:
-        invoiced = [t for t in self.tickets if t["status"] == "invoiced"]
-        if not invoiced:
+        open_invoices = [inv for inv in self.invoices if inv["status"] == "open"]
+        if not open_invoices:
             return self._emit_invoice_generated(clock)
-        ticket = self.rng.choice(invoiced)
+        invoice = self.rng.choice(open_invoices)
+        invoice["status"] = "paid"
         return {
             "event_type": "payment_received",
             "payload": {
                 "payment_id": self.id_gen.next("pay"),
-                "invoice_id": self.id_gen.next("inv"),
-                "amount": round(self.rng.uniform(100.0, 250.0), 2),
+                "invoice_id": invoice["invoice_id"],
+                "ticket_id": invoice["ticket_id"],
+                "amount": invoice["total"],
                 "method": self.rng.choice(["card", "cash", "check"]),
                 "status": "settled",
                 "received_at": clock.now.isoformat(),

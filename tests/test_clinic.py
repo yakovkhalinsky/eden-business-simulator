@@ -95,6 +95,31 @@ def test_clinic_runner_smoke():
     assert all(e.business_type == "clinic" for e in adapter.events)
 
 
+def test_lab_order_id_links_to_prior_order():
+    config = SimulatorConfig(
+        business_type="clinic",
+        duration_seconds=5.0,
+        events_per_second=50.0,
+        seed=101,
+    )
+    sim = ClinicSimulator()
+    sim.configure(config)
+    sim.initialize(config.seed)
+    clock = Clock(tick_seconds=1.0 / config.events_per_second)
+    lab_orders: set[str] = set()
+    results: list[dict[str, Any]] = []
+    for _ in range(300):
+        event = sim.next_event(clock)
+        if event["event_type"] == "lab_order_placed":
+            lab_orders.add(event["payload"]["lab_order_id"])
+        elif event["event_type"] == "lab_result_received":
+            results.append(event["payload"])
+        clock.advance()
+    if results:
+        for result in results:
+            assert result["lab_order_id"] in lab_orders, "lab_result_received must reference a prior lab_order_placed"
+
+
 def _collect_event_types(config: SimulatorConfig) -> list[str]:
     sim = ClinicSimulator()
     sim.configure(config)

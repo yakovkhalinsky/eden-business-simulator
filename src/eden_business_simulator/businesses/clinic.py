@@ -59,6 +59,7 @@ class ClinicSimulator(BusinessSimulator):
         )
         self.appointments: list[dict[str, Any]] = []
         self.encounters: list[dict[str, Any]] = []
+        self.lab_orders: list[dict[str, Any]] = []
         self.claims: list[dict[str, Any]] = []
         self.catalog = WeightedEventCatalog(self.rng)
 
@@ -82,6 +83,7 @@ class ClinicSimulator(BusinessSimulator):
         )
         self.appointments = []
         self.encounters = []
+        self.lab_orders = []
         self.claims = []
         self.catalog = WeightedEventCatalog(self.rng)
 
@@ -95,6 +97,8 @@ class ClinicSimulator(BusinessSimulator):
     def available_event_types(self) -> list[str]:
         return [
             "appointment_scheduled",
+            "appointment_cancelled",
+            "appointment_rescheduled",
             "patient_checked_in",
             "vitals_recorded",
             "encounter_started",
@@ -122,6 +126,7 @@ class ClinicSimulator(BusinessSimulator):
             "provider_count": len(self.providers.all()),
             "appointment_count": len(self.appointments),
             "encounter_count": len(self.encounters),
+            "lab_order_count": len(self.lab_orders),
             "claim_count": len(self.claims),
             "appointments_by_status": self._appointments_by_status(),
         }
@@ -154,6 +159,12 @@ class ClinicSimulator(BusinessSimulator):
 
         self.catalog.register(
             "appointment_scheduled", base_weight=8.0, guard=has_patients
+        )
+        self.catalog.register(
+            "appointment_cancelled", base_weight=2.0, guard=has_scheduled
+        )
+        self.catalog.register(
+            "appointment_rescheduled", base_weight=2.0, guard=has_scheduled
         )
         self.catalog.register(
             "patient_checked_in", base_weight=6.0, guard=has_scheduled
@@ -242,6 +253,42 @@ class ClinicSimulator(BusinessSimulator):
                 "appointment_time": appt_time.isoformat(),
                 "reason": self.rng.choice(["annual_physical", "follow_up", "sick_visit"]),
                 "channel": self.rng.choice(["phone", "patient_portal", "referral"]),
+            },
+        }
+
+    def _emit_appointment_cancelled(self, clock: Clock) -> dict[str, Any]:
+        scheduled = [a for a in self.appointments if a["status"] == "scheduled"]
+        if not scheduled:
+            return self._emit_appointment_scheduled(clock)
+        appt = self.rng.choice(scheduled)
+        appt["status"] = "cancelled"
+        return {
+            "event_type": "appointment_cancelled",
+            "payload": {
+                "appointment_id": appt["appointment_id"],
+                "patient_id": appt["patient_id"],
+                "provider_id": appt["provider_id"],
+                "reason": self.rng.choice(["patient_request", "provider_unavailable", "no_longer_needed"]),
+                "cancelled_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_appointment_rescheduled(self, clock: Clock) -> dict[str, Any]:
+        scheduled = [a for a in self.appointments if a["status"] == "scheduled"]
+        if not scheduled:
+            return self._emit_appointment_scheduled(clock)
+        appt = self.rng.choice(scheduled)
+        new_time = appt["scheduled_time"] + timedelta(hours=self.rng.randint(1, 72))
+        appt["scheduled_time"] = new_time
+        return {
+            "event_type": "appointment_rescheduled",
+            "payload": {
+                "appointment_id": appt["appointment_id"],
+                "patient_id": appt["patient_id"],
+                "provider_id": appt["provider_id"],
+                "new_appointment_time": new_time.isoformat(),
+                "reason": self.rng.choice(["patient_request", "provider_unavailable"]),
+                "rescheduled_at": clock.now.isoformat(),
             },
         }
 
@@ -351,10 +398,19 @@ class ClinicSimulator(BusinessSimulator):
             return self._emit_encounter_started(clock)
         encounter = self.rng.choice(started)
         tests = self.rng.sample(["CBC", "CMP", "lipid_panel", "A1C"], k=self.rng.randint(1, 3))
+        lab_order_id = self.id_gen.next("lo")
+        lab_order = {
+            "lab_order_id": lab_order_id,
+            "encounter_id": encounter["encounter_id"],
+            "patient_id": encounter["patient_id"],
+            "tests": tests,
+            "status": "pending",
+        }
+        self.lab_orders.append(lab_order)
         return {
             "event_type": "lab_order_placed",
             "payload": {
-                "lab_order_id": self.id_gen.next("lo"),
+                "lab_order_id": lab_order_id,
                 "encounter_id": encounter["encounter_id"],
                 "patient_id": encounter["patient_id"],
                 "tests": [{"code": t, "name": t.replace("_", " ")} for t in tests],
@@ -364,16 +420,20 @@ class ClinicSimulator(BusinessSimulator):
         }
 
     def _emit_lab_result_received(self, clock: Clock) -> dict[str, Any]:
-        diagnosed = [e for e in self.encounters if e["status"] == "diagnosed"]
-        if not diagnosed:
-            return self._emit_diagnosis_recorded(clock)
-        encounter = self.rng.choice(diagnosed)
+        pending = [lo for lo in self.lab_orders if lo["status"] == "pending"]
+        if not pending:
+            diagnosed = [e for e in self.encounters if e["status"] == "diagnosed"]
+            if not diagnosed:
+                return self._emit_diagnosis_recorded(clock)
+            return self._emit_lab_order_placed(clock)
+        lab_order = self.rng.choice(pending)
+        lab_order["status"] = "resulted"
         return {
             "event_type": "lab_result_received",
             "payload": {
                 "lab_result_id": self.id_gen.next("lr"),
-                "lab_order_id": self.id_gen.next("lo"),
-                "patient_id": encounter["patient_id"],
+                "lab_order_id": lab_order["lab_order_id"],
+                "patient_id": lab_order["patient_id"],
                 "results": [
                     {
                         "code": "WBC",

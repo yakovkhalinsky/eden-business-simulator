@@ -119,6 +119,9 @@ class GymSimulator(BusinessSimulator):
             "retail_purchase_made",
             "payment_failed",
             "retention_outreach_sent",
+            "membership_renewed",
+            "membership_upgraded",
+            "membership_downgraded",
             "membership_frozen",
             "membership_cancelled",
         ]
@@ -283,6 +286,21 @@ class GymSimulator(BusinessSimulator):
             "retention_outreach_sent",
             base_weight=2.0,
             guard=has_failed_payments,
+        )
+        self.catalog.register(
+            "membership_renewed",
+            base_weight=4.0,
+            guard=has_active_members,
+        )
+        self.catalog.register(
+            "membership_upgraded",
+            base_weight=3.0,
+            guard=has_active_members,
+        )
+        self.catalog.register(
+            "membership_downgraded",
+            base_weight=2.5,
+            guard=has_active_members,
         )
         self.catalog.register(
             "membership_frozen",
@@ -639,6 +657,85 @@ class GymSimulator(BusinessSimulator):
                 "channel": self.rng.choice(["email", "sms", "phone"]),
                 "message_type": self.rng.choice(["payment_retry", "win_back"]),
                 "sent_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_membership_renewed(self, clock: Clock) -> dict[str, Any]:
+        active_members = [
+            m.actor_id
+            for m in self.members.all()
+            if m.actor_id not in self._cancelled_members
+        ]
+        if not active_members:
+            return self._emit_membership_enrolled(clock)
+        member_id = self.rng.choice(active_members)
+        membership = self.memberships[member_id]
+        return {
+            "event_type": "membership_renewed",
+            "payload": {
+                "member_id": member_id,
+                "membership_id": membership["membership_id"],
+                "tier": membership["tier"],
+                "monthly_fee": membership["monthly_fee"],
+                "renewal_term_months": self.rng.choice([1, 3, 6, 12]),
+                "renewed_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_membership_upgraded(self, clock: Clock) -> dict[str, Any]:
+        active_members = [
+            m.actor_id
+            for m in self.members.all()
+            if m.actor_id not in self._cancelled_members
+        ]
+        if not active_members:
+            return self._emit_membership_enrolled(clock)
+        member_id = self.rng.choice(active_members)
+        membership = self.memberships[member_id]
+        current_tier = membership["tier"]
+        higher_tiers = [t for t in self._TIERS if t != current_tier]
+        new_tier = self.rng.choice(higher_tiers)
+        plan = self._PLANS[new_tier]
+        membership["tier"] = new_tier
+        membership["monthly_fee"] = plan["monthly_fee"]
+        return {
+            "event_type": "membership_upgraded",
+            "payload": {
+                "member_id": member_id,
+                "membership_id": membership["membership_id"],
+                "previous_tier": current_tier,
+                "new_tier": new_tier,
+                "new_monthly_fee": plan["monthly_fee"],
+                "upgraded_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_membership_downgraded(self, clock: Clock) -> dict[str, Any]:
+        active_members = [
+            m.actor_id
+            for m in self.members.all()
+            if m.actor_id not in self._cancelled_members
+        ]
+        if not active_members:
+            return self._emit_membership_enrolled(clock)
+        member_id = self.rng.choice(active_members)
+        membership = self.memberships[member_id]
+        current_tier = membership["tier"]
+        lower_tiers = [t for t in self._TIERS if t != current_tier]
+        new_tier = self.rng.choice(lower_tiers)
+        plan = self._PLANS[new_tier]
+        membership["tier"] = new_tier
+        membership["monthly_fee"] = plan["monthly_fee"]
+        return {
+            "event_type": "membership_downgraded",
+            "payload": {
+                "member_id": member_id,
+                "membership_id": membership["membership_id"],
+                "previous_tier": current_tier,
+                "new_tier": new_tier,
+                "new_monthly_fee": plan["monthly_fee"],
+                "reason": self.rng.choice(["cost", "usage", "seasonal"]),
+                "downgraded_at": clock.now.isoformat(),
             },
         }
 

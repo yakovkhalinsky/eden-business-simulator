@@ -60,6 +60,8 @@ class EcommerceSimulator(BusinessSimulator):
             "customer_created",
             "product_viewed",
             "cart_updated",
+            "checkout_started",
+            "payment_info_entered",
             "order_placed",
             "payment_processed",
             "order_shipped",
@@ -111,6 +113,43 @@ class EcommerceSimulator(BusinessSimulator):
                         for item in self.carts.get(customer["customer_id"], [])
                     ],
                     "updated_at": clock.now.isoformat(),
+                },
+            }
+
+        if event_type == "checkout_started":
+            customers_with_items = [cid for cid, items in self.carts.items() if items]
+            if not customers_with_items:
+                customer = self.rng.choice(self.customers)
+                product = self.rng.choice(self.products)
+                self._update_cart(customer["customer_id"], product, 1)
+                customers_with_items = [customer["customer_id"]]
+            customer_id = self.rng.choice(customers_with_items)
+            return {
+                "event_type": event_type,
+                "payload": {
+                    "customer_id": customer_id,
+                    "cart_items": [
+                        {"product_id": item["product_id"], "quantity": item["quantity"]}
+                        for item in self.carts.get(customer_id, [])
+                    ],
+                    "started_at": clock.now.isoformat(),
+                },
+            }
+
+        if event_type == "payment_info_entered":
+            customers_with_items = [cid for cid, items in self.carts.items() if items]
+            if not customers_with_items:
+                customer = self.rng.choice(self.customers)
+                product = self.rng.choice(self.products)
+                self._update_cart(customer["customer_id"], product, 1)
+                customers_with_items = [customer["customer_id"]]
+            customer_id = self.rng.choice(customers_with_items)
+            return {
+                "event_type": event_type,
+                "payload": {
+                    "customer_id": customer_id,
+                    "payment_method": self.rng.choice(["card", "paypal", "apple_pay"]),
+                    "entered_at": clock.now.isoformat(),
                 },
             }
 
@@ -311,7 +350,9 @@ class EcommerceSimulator(BusinessSimulator):
         }
 
         if any(self.carts[cid] for cid in self.carts):
-            weights["order_placed"] = 15.0
+            weights["checkout_started"] = 8.0
+            weights["payment_info_entered"] = 6.0
+            weights["order_placed"] = 10.0
 
         if any(o["status"] == "placed" for o in self.orders):
             weights["payment_processed"] = 15.0

@@ -126,6 +126,21 @@ The logistics simulator models last-mile delivery operations. Shipments are crea
 }
 ```
 
+### `delivery_delivered`
+
+A delivery is confirmed as successfully completed.
+
+```json
+{
+  "delivery_id": "dlv_0001",
+  "shipment_id": "shp_0006",
+  "attempt_id": "att_0001",
+  "stop_id": "stp_0002",
+  "delivered_at": "2026-08-02T13:21:17.084405+00:00",
+  "recipient_name": "April Griffin"
+}
+```
+
 ### `proof_of_delivery_captured`
 
 ```json

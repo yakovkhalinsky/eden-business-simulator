@@ -1,11 +1,11 @@
-"""Tests for the field service simulator."""
+"""Tests for the SaaS simulator."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from eden_business_simulator.businesses import load_simulator
-from eden_business_simulator.businesses.field_service import FieldServiceSimulator
+from eden_business_simulator.businesses.saas import SaaSSimulator
 from eden_business_simulator.config import SimulatorConfig
 from eden_business_simulator.models import Clock
 from eden_business_simulator.runner import Runner
@@ -22,51 +22,51 @@ class _ListAdapter:
         pass
 
 
-def test_field_service_registered():
-    sim = load_simulator("field_service")
-    assert isinstance(sim, FieldServiceSimulator)
+def test_saas_registered():
+    sim = load_simulator("saas")
+    assert isinstance(sim, SaaSSimulator)
 
 
-def test_field_service_emits_expected_event_types():
+def test_saas_emits_expected_event_types():
     config = SimulatorConfig(
-        business_type="field_service",
+        business_type="saas",
         duration_seconds=5.0,
         events_per_second=50.0,
-        seed=13,
+        seed=11,
     )
-    sim = FieldServiceSimulator()
+    sim = SaaSSimulator()
     sim.configure(config)
     sim.initialize(config.seed)
     events = []
     clock = Clock(tick_seconds=1.0 / config.events_per_second)
-    for _ in range(250):
+    for _ in range(120):
         events.append(sim.next_event(clock))
         clock.advance()
     emitted_types = {e["event_type"] for e in events}
-    for expected in FieldServiceSimulator().available_event_types():
+    for expected in SaaSSimulator().available_event_types():
         assert expected in emitted_types, f"missing {expected}"
 
 
-def test_field_service_determinism():
+def test_saas_determinism():
     config = SimulatorConfig(
-        business_type="field_service",
+        business_type="saas",
         duration_seconds=1.0,
         events_per_second=20.0,
-        seed=77,
+        seed=44,
     )
     run_a = _collect_event_types(config)
     run_b = _collect_event_types(config)
     assert run_a == run_b
 
 
-def test_field_service_state_snapshot():
+def test_saas_state_snapshot():
     config = SimulatorConfig(
-        business_type="field_service",
+        business_type="saas",
         duration_seconds=0.5,
         events_per_second=10.0,
         seed=1,
     )
-    sim = FieldServiceSimulator()
+    sim = SaaSSimulator()
     sim.configure(config)
     sim.initialize(config.seed)
     clock = Clock(tick_seconds=0.1)
@@ -74,54 +74,59 @@ def test_field_service_state_snapshot():
         sim.next_event(clock)
         clock.advance()
     snapshot = sim.state_snapshot()
-    assert "customer_count" in snapshot
-    assert "ticket_count" in snapshot
+    assert "account_count" in snapshot
+    assert "subscription_count" in snapshot
 
 
-def test_field_service_runner_smoke():
+def test_saas_runner_smoke():
     config = SimulatorConfig(
-        business_type="field_service",
+        business_type="saas",
         duration_seconds=0.3,
         events_per_second=10.0,
         seed=1,
     )
-    sim = load_simulator("field_service")
+    sim = load_simulator("saas")
     sim.configure(config)
     sim.initialize(config.seed)
     adapter = _ListAdapter()
     runner = Runner(config, sim, adapter, realtime=False)
     count = runner.run()
     assert count >= 2
-    assert all(e.business_type == "field_service" for e in adapter.events)
+    assert all(e.business_type == "saas" for e in adapter.events)
 
 
-def test_payment_invoice_id_links_to_prior_invoice():
+def test_saas_per_event_payloads():
     config = SimulatorConfig(
-        business_type="field_service",
+        business_type="saas",
         duration_seconds=5.0,
         events_per_second=50.0,
-        seed=202,
+        seed=33,
     )
-    sim = FieldServiceSimulator()
+    sim = SaaSSimulator()
     sim.configure(config)
     sim.initialize(config.seed)
     clock = Clock(tick_seconds=1.0 / config.events_per_second)
-    invoices: set[str] = set()
-    payments: list[dict[str, Any]] = []
-    for _ in range(300):
+    seen: dict[str, dict[str, Any]] = {}
+    for _ in range(200):
         event = sim.next_event(clock)
-        if event["event_type"] == "invoice_generated":
-            invoices.add(event["payload"]["invoice_id"])
-        elif event["event_type"] == "payment_received":
-            payments.append(event["payload"])
+        seen[event["event_type"]] = event["payload"]
         clock.advance()
-    if payments:
-        for payment in payments:
-            assert payment["invoice_id"] in invoices, "payment_received must reference a prior invoice_generated"
+
+    assert "plan_name" in seen["plan_subscribed"]
+    assert "monthly_fee" in seen["plan_subscribed"]
+    assert "invoice_id" in seen["invoice_generated"]
+    assert "line_items" in seen["invoice_generated"]
+    assert "invoice_id" in seen["payment_succeeded"]
+    assert "payment_method" in seen["payment_succeeded"]
+    assert "failure_reason" in seen["payment_failed"]
+    assert "subject" in seen["support_ticket_opened"]
+    assert "severity" in seen["support_ticket_opened"]
+    assert "resolution" in seen["ticket_resolved"]
+    assert "reason" in seen["churned"]
 
 
 def _collect_event_types(config: SimulatorConfig) -> list[str]:
-    sim = FieldServiceSimulator()
+    sim = SaaSSimulator()
     sim.configure(config)
     sim.initialize(config.seed)
     clock = Clock(tick_seconds=1.0 / config.events_per_second)

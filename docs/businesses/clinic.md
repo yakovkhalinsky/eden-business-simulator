@@ -48,6 +48,31 @@ The clinic simulator models outpatient healthcare workflows. Patients schedule a
 }
 ```
 
+### `appointment_cancelled`
+
+```json
+{
+  "appointment_id": "appt_0004",
+  "patient_id": "patient_0004",
+  "provider_id": "provider_0001",
+  "reason": "patient_request",
+  "cancelled_at": "2026-08-02T13:21:18.130916+00:00"
+}
+```
+
+### `appointment_rescheduled`
+
+```json
+{
+  "appointment_id": "appt_0002",
+  "patient_id": "patient_0002",
+  "provider_id": "provider_0003",
+  "new_appointment_time": "2026-08-04T10:21:17.630916+00:00",
+  "reason": "provider_unavailable",
+  "rescheduled_at": "2026-08-02T13:21:19.230916+00:00"
+}
+```
+
 ### `patient_checked_in`
 
 ```json
@@ -246,7 +271,7 @@ The clinic simulator models outpatient healthcare workflows. Patients schedule a
 - Appointment types: `new_patient_visit`, `annual_physical`, `follow_up`, `sick_visit`.
 - Channels: `patient_portal`, `phone`, `walk_in`.
 - ICD-10 and CPT codes are sampled from small static catalogs.
-- Note: `lab_result_received.lab_order_id` is generated independently; it is not guaranteed to reference a prior `lab_order_placed` event in the same stream.
+- `lab_result_received.lab_order_id` now references a prior `lab_order_placed` event from the same stream.
 
 ## CLI quick start
 

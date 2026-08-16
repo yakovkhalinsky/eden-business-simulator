@@ -44,6 +44,36 @@ The plumber simulator models dispatched plumbers who visit customer sites to rep
 }
 ```
 
+### `estimate_requested`
+
+A customer requests a plumbing work estimate before a ticket is assigned.
+
+```json
+{
+  "estimate_id": "est_0001",
+  "ticket_id": "tkt_0001",
+  "customer_id": "cust_0003",
+  "requested_at": "2026-08-02T13:21:16.750428+00:00",
+  "notes": "Customer wants a quote for the repair."
+}
+```
+
+### `estimate_approved`
+
+The customer approves the estimate and plumbing work can proceed.
+
+```json
+{
+  "estimate_id": "est_0002",
+  "ticket_id": "tkt_0001",
+  "customer_id": "cust_0003",
+  "labor_estimate": 120.0,
+  "parts_estimate": 45.0,
+  "total_estimate": 165.0,
+  "approved_at": "2026-08-02T13:21:16.850428+00:00"
+}
+```
+
 ### `technician_assigned`
 
 ```json
@@ -152,8 +182,9 @@ The plumber simulator models dispatched plumbers who visit customer sites to rep
 ```json
 {
   "payment_id": "pay_0001",
-  "invoice_id": "inv_0002",
-  "amount": 160.67,
+  "invoice_id": "inv_0001",
+  "ticket_id": "tkt_0001",
+  "amount": 235.43,
   "method": "cash",
   "status": "settled",
   "received_at": "2026-08-02T13:21:18.450428+00:00"
@@ -211,7 +242,7 @@ The plumber simulator models dispatched plumbers who visit customer sites to rep
   - `initial_customers` (default `5`)
 - Categories: `leak_repair`, `drain_cleaning`, `pipe_install`, `emergency`.
 - Parts catalog includes `prt_p001` through `prt_p004` with deterministic costs.
-- Note: `payment_received.invoice_id` is generated independently; it is not guaranteed to reference a prior `invoice_generated` event in the same stream.
+- `payment_received.invoice_id` now references a prior `invoice_generated` event from the same stream.
 
 ## CLI quick start
 
