@@ -268,7 +268,7 @@ class GymSimulator(BusinessSimulator):
         self.catalog.register(
             "class_booked",
             base_weight=8.0,
-            guard=lambda ctx: has_members(ctx) and has_classes(ctx),
+            guard=lambda ctx: has_active_members(ctx) and has_classes(ctx),
         )
         self.catalog.register(
             "class_cancelled",
@@ -283,7 +283,7 @@ class GymSimulator(BusinessSimulator):
         self.catalog.register(
             "pt_session_scheduled",
             base_weight=4.0,
-            guard=lambda ctx: has_members(ctx)
+            guard=lambda ctx: has_active_members(ctx)
             and any(s["role"] == "trainer" for s in ctx.staff.all()),
         )
         self.catalog.register(
@@ -336,6 +336,15 @@ class GymSimulator(BusinessSimulator):
             base_weight=1.0,
             guard=has_active_members,
         )
+
+    def _active_member_ids(self) -> list[str]:
+        """Return member IDs that are neither cancelled nor frozen."""
+        return [
+            mid
+            for mid, membership in self.memberships.items()
+            if mid not in self._cancelled_members
+            and membership["status"] == "active"
+        ]
 
     def _create_member(self) -> dict[str, Any]:
         actor = self.members.create()
@@ -393,11 +402,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_check_in_recorded(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
@@ -431,11 +436,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_class_booked(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not self.classes or not active_members:
             return self._emit_check_in_recorded(clock)
         member_id = self.rng.choice(active_members)
@@ -500,11 +501,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_pt_session_scheduled(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         trainers = [s for s in self.staff.all() if s["role"] == "trainer"]
         if not active_members or not trainers:
             return self._emit_check_in_recorded(clock)
@@ -537,11 +534,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_workout_logged(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_check_in_recorded(clock)
         member_id = self.rng.choice(active_members)
@@ -582,11 +575,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_progress_recorded(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_check_in_recorded(clock)
         member_id = self.rng.choice(active_members)
@@ -608,11 +597,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_retail_purchase_made(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_check_in_recorded(clock)
         member_id = self.rng.choice(active_members)
@@ -639,11 +624,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_payment_failed(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
@@ -696,11 +677,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_membership_renewed(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
@@ -721,11 +698,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_membership_upgraded(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
@@ -752,11 +725,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_membership_downgraded(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
@@ -819,11 +788,7 @@ class GymSimulator(BusinessSimulator):
         }
 
     def _emit_membership_cancelled(self, clock: Clock) -> dict[str, Any]:
-        active_members = [
-            m.actor_id
-            for m in self.members.all()
-            if m.actor_id not in self._cancelled_members
-        ]
+        active_members = self._active_member_ids()
         if not active_members:
             return self._emit_membership_enrolled(clock)
         member_id = self.rng.choice(active_members)
