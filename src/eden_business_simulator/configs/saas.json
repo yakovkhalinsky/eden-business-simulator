@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "business_type": "saas",
+  "version": "1.0",
+  "events": [
+    {
+      "event_type": "account_signed_up",
+      "base_weight": 1.0,
+      "guard": null,
+      "in_catalog": true
+    },
+    {
+      "event_type": "plan_subscribed",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "feature_used",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "invoice_generated",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "payment_succeeded",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "payment_failed",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "support_ticket_opened",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "ticket_resolved",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "churned",
+      "base_weight": 1.0,
+      "guard": "has_accounts",
+      "in_catalog": true
+    }
+  ],
+  "dayparts": [],
+  "domain": {
+    "plans": [
+      [
+        "starter",
+        29.0,
+        "month"
+      ],
+      [
+        "growth",
+        79.0,
+        "month"
+      ],
+      [
+        "enterprise",
+        249.0,
+        "month"
+      ]
+    ],
+    "features": [
+      "api_call",
+      "report_export",
+      "user_invited",
+      "workflow_run",
+      "storage_gb",
+      "support_chat"
+    ],
+    "severities": [
+      "low",
+      "medium",
+      "high",
+      "critical"
+    ],
+    "churn_reasons": [
+      "too_expensive",
+      "missing_features",
+      "switched_competitor",
+      "project_ended",
+      "not_using"
+    ]
+  },
+  "initial_state": {
+    "defaults": {
+      "initial_accounts": 3
+    },
+    "types": {
+      "initial_accounts": "int"
+    }
+  }
+}

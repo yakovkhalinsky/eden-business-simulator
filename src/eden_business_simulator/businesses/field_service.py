@@ -66,6 +66,13 @@ class FieldServiceSimulator(BusinessSimulator):
         self.invoices = []
         self.vehicles = []
         self.catalog = WeightedEventCatalog(self.rng)
+        definition = getattr(self, "definition", None)
+        if definition is not None:
+            domain = definition.domain
+            if "categories" in domain:
+                self._CATEGORIES = tuple(domain["categories"])
+            if "parts" in domain:
+                self._PARTS = tuple(tuple(row) for row in domain["parts"])
 
         for _ in range(self.config.initial_state_overrides.get("initial_techs", 3)):
             self.techs.create(skill=self.rng.choice(self._CATEGORIES))
@@ -139,51 +146,43 @@ class FieldServiceSimulator(BusinessSimulator):
         def has_invoiced(ctx: "FieldServiceSimulator") -> bool:
             return any(t["status"] == "invoiced" for t in ctx.tickets)
 
-        self.catalog.register(
-            "service_ticket_created", base_weight=8.0, guard=has_customers
-        )
-        self.catalog.register(
-            "estimate_requested", base_weight=4.0, guard=has_open_tickets
-        )
-        self.catalog.register(
-            "estimate_approved", base_weight=3.0, guard=has_open_tickets
-        )
-        self.catalog.register(
-            "technician_assigned", base_weight=6.0, guard=has_open_tickets
-        )
-        self.catalog.register(
-            "technician_dispatched", base_weight=5.0, guard=has_assigned
-        )
-        self.catalog.register(
-            "technician_arrived", base_weight=5.0, guard=has_dispatched
-        )
-        self.catalog.register(
-            "diagnosis_recorded", base_weight=5.0, guard=has_arrived
-        )
-        self.catalog.register(
-            "parts_used", base_weight=4.0, guard=has_diagnosed
-        )
-        self.catalog.register(
-            "work_completed", base_weight=5.0, guard=has_diagnosed
-        )
-        self.catalog.register(
-            "customer_sign_off", base_weight=4.0, guard=has_work_completed
-        )
-        self.catalog.register(
-            "invoice_generated", base_weight=4.0, guard=has_work_completed
-        )
-        self.catalog.register(
-            "payment_received", base_weight=3.0, guard=has_invoiced
-        )
-        self.catalog.register(
-            "follow_up_scheduled", base_weight=2.0, guard=has_work_completed
-        )
-        self.catalog.register(
-            "vehicle_location_update", base_weight=3.0, guard=has_dispatched
-        )
-        self.catalog.register(
-            "parts_reorder_placed", base_weight=2.0, guard=has_diagnosed
-        )
+        guards = {
+            "has_customers": has_customers,
+            "has_open_tickets": has_open_tickets,
+            "has_assigned": has_assigned,
+            "has_dispatched": has_dispatched,
+            "has_arrived": has_arrived,
+            "has_diagnosed": has_diagnosed,
+            "has_work_completed": has_work_completed,
+            "has_invoiced": has_invoiced,
+        }
+        if getattr(self, "definition", None) is not None:
+            from eden_business_simulator.framework.definition import (
+                build_weighted_catalog,
+            )
+
+            self.catalog = build_weighted_catalog(self.definition, self.rng, guards)
+            return
+        for event_type, weight, guard_name in [
+            ("service_ticket_created", 8.0, "has_customers"),
+            ("estimate_requested", 4.0, "has_open_tickets"),
+            ("estimate_approved", 3.0, "has_open_tickets"),
+            ("technician_assigned", 6.0, "has_open_tickets"),
+            ("technician_dispatched", 5.0, "has_assigned"),
+            ("technician_arrived", 5.0, "has_dispatched"),
+            ("diagnosis_recorded", 5.0, "has_arrived"),
+            ("parts_used", 4.0, "has_diagnosed"),
+            ("work_completed", 5.0, "has_diagnosed"),
+            ("customer_sign_off", 4.0, "has_work_completed"),
+            ("invoice_generated", 4.0, "has_work_completed"),
+            ("payment_received", 3.0, "has_invoiced"),
+            ("follow_up_scheduled", 2.0, "has_work_completed"),
+            ("vehicle_location_update", 3.0, "has_dispatched"),
+            ("parts_reorder_placed", 2.0, "has_diagnosed"),
+        ]:
+            self.catalog.register(
+                event_type, base_weight=weight, guard=guards[guard_name]
+            )
 
     def _create_customer(self) -> dict[str, Any]:
         customer_id = self.id_gen.next("cust")

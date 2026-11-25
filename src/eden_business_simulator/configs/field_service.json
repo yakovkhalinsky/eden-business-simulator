@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "business_type": "field_service",
+  "version": "1.0",
+  "events": [
+    {
+      "event_type": "service_ticket_created",
+      "base_weight": 8,
+      "guard": "has_customers",
+      "in_catalog": true
+    },
+    {
+      "event_type": "estimate_requested",
+      "base_weight": 4,
+      "guard": "has_open_tickets",
+      "in_catalog": true
+    },
+    {
+      "event_type": "estimate_approved",
+      "base_weight": 3,
+      "guard": "has_open_tickets",
+      "in_catalog": true
+    },
+    {
+      "event_type": "technician_assigned",
+      "base_weight": 6,
+      "guard": "has_open_tickets",
+      "in_catalog": true
+    },
+    {
+      "event_type": "technician_dispatched",
+      "base_weight": 5,
+      "guard": "has_assigned",
+      "in_catalog": true
+    },
+    {
+      "event_type": "technician_arrived",
+      "base_weight": 5,
+      "guard": "has_dispatched",
+      "in_catalog": true
+    },
+    {
+      "event_type": "diagnosis_recorded",
+      "base_weight": 5,
+      "guard": "has_arrived",
+      "in_catalog": true
+    },
+    {
+      "event_type": "parts_used",
+      "base_weight": 4,
+      "guard": "has_diagnosed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "work_completed",
+      "base_weight": 5,
+      "guard": "has_diagnosed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "customer_sign_off",
+      "base_weight": 4,
+      "guard": "has_work_completed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "invoice_generated",
+      "base_weight": 4,
+      "guard": "has_work_completed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "payment_received",
+      "base_weight": 3,
+      "guard": "has_invoiced",
+      "in_catalog": true
+    },
+    {
+      "event_type": "follow_up_scheduled",
+      "base_weight": 2,
+      "guard": "has_work_completed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "vehicle_location_update",
+      "base_weight": 3,
+      "guard": "has_dispatched",
+      "in_catalog": true
+    },
+    {
+      "event_type": "parts_reorder_placed",
+      "base_weight": 2,
+      "guard": "has_diagnosed",
+      "in_catalog": true
+    }
+  ],
+  "dayparts": [],
+  "domain": {
+    "categories": [
+      "hvac_repair",
+      "plumbing",
+      "electrical",
+      "appliance"
+    ],
+    "parts": [
+      [
+        "prt_001",
+        "dual_run_capacitor",
+        24.5
+      ],
+      [
+        "prt_002",
+        "contact_relay",
+        18.0
+      ],
+      [
+        "prt_003",
+        "pvc_fitting",
+        3.5
+      ],
+      [
+        "prt_004",
+        "breaker_20a",
+        12.0
+      ]
+    ]
+  },
+  "initial_state": {
+    "defaults": {
+      "initial_techs": 3,
+      "initial_vehicles": 2,
+      "initial_customers": 5
+    },
+    "types": {
+      "initial_techs": "int",
+      "initial_vehicles": "int",
+      "initial_customers": "int"
+    }
+  }
+}

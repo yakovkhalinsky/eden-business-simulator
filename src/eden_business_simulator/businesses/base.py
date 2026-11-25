@@ -24,8 +24,26 @@ class BusinessSimulator(ABC):
     business_type: str = "abstract"
 
     def configure(self, config: SimulatorConfig) -> None:
-        """Apply runtime configuration before initialization."""
+        """Apply runtime configuration before initialization.
+
+        Phase 0: load and validate this business's definition (if one
+        exists), validate ``initial_state_overrides`` against its declared
+        keys, and record the definition hash so a run is reproducible
+        against the exact configuration that produced it. Simulators with
+        no definition file (e.g. test doubles) keep the old behaviour.
+        """
         self.config = config
+        self.definition = None
+        self.definition_hash = None
+        try:
+            from eden_business_simulator.framework.definition import load_definition
+
+            definition = load_definition(self.business_type)
+        except FileNotFoundError:
+            return
+        definition.validate_overrides(config.initial_state_overrides)
+        self.definition = definition
+        self.definition_hash = definition.definition_hash()
 
     @abstractmethod
     def initialize(self, seed: int) -> None:

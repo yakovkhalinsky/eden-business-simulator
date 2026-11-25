@@ -76,6 +76,15 @@ class LogisticsSimulator(BusinessSimulator):
         self.feedback = []
         self.returns = []
         self.catalog = WeightedEventCatalog(self.rng, self._build_schedule())
+        definition = getattr(self, "definition", None)
+        if definition is not None:
+            domain = definition.domain
+            if "service_levels" in domain:
+                self._SERVICE_LEVELS = tuple(domain["service_levels"])
+            if "exception_reasons" in domain:
+                self._EXCEPTION_REASONS = tuple(domain["exception_reasons"])
+            if "hub_id" in domain:
+                self.hub_id = domain["hub_id"]
 
         initial_drivers = self.config.initial_state_overrides.get("initial_drivers", 4)
         for _ in range(initial_drivers):
@@ -200,9 +209,6 @@ class LogisticsSimulator(BusinessSimulator):
         )
 
     def _build_catalog(self) -> None:
-        def has_shipments(ctx: "LogisticsSimulator") -> bool:
-            return len(ctx.shipments) > 0
-
         def has_unrouted(ctx: "LogisticsSimulator") -> bool:
             return any(s["status"] == "created" for s in ctx.shipments)
 
@@ -219,81 +225,47 @@ class LogisticsSimulator(BusinessSimulator):
             return any(s["status"] == "arrived" for s in ctx.stops)
 
         def has_delivered(ctx: "LogisticsSimulator") -> bool:
-            return any(
-                a["outcome"] == "delivered" for a in ctx.attempts
-            )
+            return any(a["outcome"] == "delivered" for a in ctx.attempts)
 
         def has_failed_attempts(ctx: "LogisticsSimulator") -> bool:
-            return any(
-                a["outcome"] != "delivered" for a in ctx.attempts
+            return any(a["outcome"] != "delivered" for a in ctx.attempts)
+
+        guards = {
+            "has_drivers_and_unrouted": lambda ctx: has_drivers(ctx)
+            and has_unrouted(ctx),
+            "has_routes": has_routes,
+            "has_active_routes": has_active_routes,
+            "has_unattempted_stops": has_unattempted_stops,
+            "has_delivered": has_delivered,
+            "has_failed_attempts": has_failed_attempts,
+        }
+        if getattr(self, "definition", None) is not None:
+            from eden_business_simulator.framework.definition import (
+                build_weighted_catalog,
             )
 
-        self.catalog.register("shipment_created", base_weight=6.0)
-        self.catalog.register(
-            "route_planned",
-            base_weight=4.0,
-            guard=lambda ctx: has_drivers(ctx) and has_unrouted(ctx),
-        )
-        self.catalog.register(
-            "driver_assigned",
-            base_weight=4.0,
-            guard=has_routes,
-        )
-        self.catalog.register(
-            "vehicle_departed",
-            base_weight=4.0,
-            guard=has_routes,
-        )
-        self.catalog.register(
-            "stop_arrived",
-            base_weight=8.0,
-            guard=has_active_routes,
-        )
-        self.catalog.register(
-            "delivery_attempted",
-            base_weight=8.0,
-            guard=has_unattempted_stops,
-        )
-        self.catalog.register(
-            "delivery_delivered",
-            base_weight=6.0,
-            guard=has_delivered,
-        )
-        self.catalog.register(
-            "proof_of_delivery_captured",
-            base_weight=5.0,
-            guard=has_delivered,
-        )
-        self.catalog.register(
-            "delivery_exception_recorded",
-            base_weight=3.0,
-            guard=has_failed_attempts,
-        )
-        self.catalog.register(
-            "customer_feedback_received",
-            base_weight=3.0,
-            guard=has_delivered,
-        )
-        self.catalog.register(
-            "return_initiated",
-            base_weight=2.0,
-            guard=has_delivered,
-        )
-        self.catalog.register(
-            "vehicle_location_update",
-            base_weight=5.0,
-            guard=has_active_routes,
-        )
-        self.catalog.register(
-            "route_completed",
-            base_weight=3.0,
-            guard=has_active_routes,
-        )
-        self.catalog.register(
-            "fuel_stop_logged",
-            base_weight=1.5,
-            guard=has_active_routes,
-        )
+            scheduler = self.definition.scheduler() or self._build_schedule()
+            self.catalog = build_weighted_catalog(
+                self.definition, self.rng, guards, scheduler
+            )
+            return
+        for event_type, weight, guard in [
+            ("shipment_created", 6.0, None),
+            ("route_planned", 4.0, guards["has_drivers_and_unrouted"]),
+            ("driver_assigned", 4.0, guards["has_routes"]),
+            ("vehicle_departed", 4.0, guards["has_routes"]),
+            ("stop_arrived", 8.0, guards["has_active_routes"]),
+            ("delivery_attempted", 8.0, guards["has_unattempted_stops"]),
+            ("delivery_delivered", 6.0, guards["has_delivered"]),
+            ("proof_of_delivery_captured", 5.0, guards["has_delivered"]),
+            ("delivery_exception_recorded", 3.0, guards["has_failed_attempts"]),
+            ("customer_feedback_received", 3.0, guards["has_delivered"]),
+            ("return_initiated", 2.0, guards["has_delivered"]),
+            ("vehicle_location_update", 5.0, guards["has_active_routes"]),
+            ("route_completed", 3.0, guards["has_active_routes"]),
+            ("fuel_stop_logged", 1.5, guards["has_active_routes"]),
+        ]:
+            self.catalog.register(event_type, base_weight=weight, guard=guard)
 
     def _create_vehicle(self) -> dict[str, Any]:
         vehicle_id = self.id_gen.next("vh")

@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "business_type": "clinic",
+  "version": "1.0",
+  "events": [
+    {
+      "event_type": "appointment_scheduled",
+      "base_weight": 8,
+      "guard": "has_patients",
+      "in_catalog": true
+    },
+    {
+      "event_type": "appointment_cancelled",
+      "base_weight": 2,
+      "guard": "has_scheduled",
+      "in_catalog": true
+    },
+    {
+      "event_type": "appointment_rescheduled",
+      "base_weight": 2,
+      "guard": "has_scheduled",
+      "in_catalog": true
+    },
+    {
+      "event_type": "patient_checked_in",
+      "base_weight": 6,
+      "guard": "has_scheduled",
+      "in_catalog": true
+    },
+    {
+      "event_type": "vitals_recorded",
+      "base_weight": 5,
+      "guard": "has_checked_in",
+      "in_catalog": true
+    },
+    {
+      "event_type": "encounter_started",
+      "base_weight": 6,
+      "guard": "has_checked_in",
+      "in_catalog": true
+    },
+    {
+      "event_type": "diagnosis_recorded",
+      "base_weight": 5,
+      "guard": "has_active_encounters",
+      "in_catalog": true
+    },
+    {
+      "event_type": "procedure_performed",
+      "base_weight": 5,
+      "guard": "has_active_encounters",
+      "in_catalog": true
+    },
+    {
+      "event_type": "lab_order_placed",
+      "base_weight": 4,
+      "guard": "has_active_encounters",
+      "in_catalog": true
+    },
+    {
+      "event_type": "lab_result_received",
+      "base_weight": 3,
+      "guard": "has_diagnosed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "medication_prescribed",
+      "base_weight": 3,
+      "guard": "has_diagnosed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "claim_submitted",
+      "base_weight": 3,
+      "guard": "has_diagnosed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "claim_adjudicated",
+      "base_weight": 2,
+      "guard": "has_claims",
+      "in_catalog": true
+    },
+    {
+      "event_type": "payment_posted",
+      "base_weight": 2,
+      "guard": "has_claims",
+      "in_catalog": true
+    },
+    {
+      "event_type": "referral_sent",
+      "base_weight": 2,
+      "guard": "has_diagnosed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "no_show_recorded",
+      "base_weight": 2,
+      "guard": "has_scheduled",
+      "in_catalog": true
+    }
+  ],
+  "dayparts": [],
+  "domain": {
+    "appointment_types": [
+      "new_patient_visit",
+      "annual_physical",
+      "follow_up",
+      "sick_visit"
+    ],
+    "icd10": [
+      [
+        "Z00.00",
+        "routine_health_exam"
+      ],
+      [
+        "E11.9",
+        "type_2_diabetes"
+      ],
+      [
+        "I10",
+        "essential_hypertension"
+      ],
+      [
+        "J06.9",
+        "acute_upper_respiratory_infection"
+      ]
+    ],
+    "cpt": [
+      [
+        "99213",
+        "office_visit_established"
+      ],
+      [
+        "99214",
+        "office_visit_established_extended"
+      ],
+      [
+        "99395",
+        "annual_physical"
+      ]
+    ]
+  },
+  "initial_state": {
+    "defaults": {
+      "initial_providers": 3,
+      "initial_patients": 6
+    },
+    "types": {
+      "initial_providers": "int",
+      "initial_patients": "int"
+    }
+  }
+}

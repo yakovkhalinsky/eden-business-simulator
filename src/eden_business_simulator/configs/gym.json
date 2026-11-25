@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "business_type": "gym",
+  "version": "1.0",
+  "events": [
+    {
+      "event_type": "membership_enrolled",
+      "base_weight": 3,
+      "guard": null,
+      "in_catalog": true
+    },
+    {
+      "event_type": "check_in_recorded",
+      "base_weight": 15,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "class_scheduled",
+      "base_weight": 4,
+      "guard": "has_staff",
+      "in_catalog": true
+    },
+    {
+      "event_type": "class_booked",
+      "base_weight": 8,
+      "guard": "has_active_members_and_classes",
+      "in_catalog": true
+    },
+    {
+      "event_type": "class_cancelled",
+      "base_weight": 3,
+      "guard": "has_bookings",
+      "in_catalog": true
+    },
+    {
+      "event_type": "class_attended",
+      "base_weight": 10,
+      "guard": "has_bookings",
+      "in_catalog": true
+    },
+    {
+      "event_type": "pt_session_scheduled",
+      "base_weight": 4,
+      "guard": "has_active_members_and_trainer",
+      "in_catalog": true
+    },
+    {
+      "event_type": "workout_logged",
+      "base_weight": 7,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "progress_recorded",
+      "base_weight": 3,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "retail_purchase_made",
+      "base_weight": 4,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "payment_failed",
+      "base_weight": 2,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "retention_outreach_sent",
+      "base_weight": 2,
+      "guard": "has_failed_payments",
+      "in_catalog": true
+    },
+    {
+      "event_type": "membership_renewed",
+      "base_weight": 4,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "membership_upgraded",
+      "base_weight": 3,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "membership_downgraded",
+      "base_weight": 2.5,
+      "guard": "has_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "membership_frozen",
+      "base_weight": 4,
+      "guard": "has_at_risk_active_members",
+      "in_catalog": true
+    },
+    {
+      "event_type": "membership_cancelled",
+      "base_weight": 1,
+      "guard": "has_active_members",
+      "in_catalog": true
+    }
+  ],
+  "dayparts": [
+    {
+      "name": "early",
+      "start_hour": 5,
+      "end_hour": 8,
+      "weight_modifiers": {
+        "check_in_recorded": 1.5,
+        "class_scheduled": 0.5
+      },
+      "default_modifier": 0.6
+    },
+    {
+      "name": "morning_peak",
+      "start_hour": 8,
+      "end_hour": 12,
+      "weight_modifiers": {
+        "check_in_recorded": 2.5,
+        "class_booked": 2.0,
+        "class_attended": 2.5,
+        "workout_logged": 2.0
+      },
+      "default_modifier": 1.2
+    },
+    {
+      "name": "afternoon",
+      "start_hour": 12,
+      "end_hour": 17,
+      "weight_modifiers": {
+        "check_in_recorded": 1.5,
+        "pt_session_scheduled": 1.5,
+        "workout_logged": 1.5
+      },
+      "default_modifier": 0.9
+    },
+    {
+      "name": "evening_peak",
+      "start_hour": 17,
+      "end_hour": 21,
+      "weight_modifiers": {
+        "check_in_recorded": 3.0,
+        "class_booked": 2.5,
+        "class_attended": 3.0,
+        "retail_purchase_made": 2.0,
+        "progress_recorded": 1.5
+      },
+      "default_modifier": 1.5
+    },
+    {
+      "name": "late",
+      "start_hour": 21,
+      "end_hour": 5,
+      "weight_modifiers": {
+        "payment_failed": 1.5,
+        "membership_cancelled": 1.5
+      },
+      "default_modifier": 0.3
+    }
+  ],
+  "domain": {
+    "tiers": [
+      "basic",
+      "standard",
+      "premium"
+    ],
+    "plans": {
+      "basic": {
+        "monthly_fee": 29.0,
+        "classes_per_week": 2
+      },
+      "standard": {
+        "monthly_fee": 49.0,
+        "classes_per_week": 5
+      },
+      "premium": {
+        "monthly_fee": 79.0,
+        "classes_per_week": 999
+      }
+    },
+    "class_types": [
+      "yoga",
+      "spin",
+      "hiit",
+      "pilates",
+      "strength",
+      "zumba"
+    ],
+    "retail_skus": [
+      [
+        "PROT_SHAKE_VAN",
+        "protein_shake_vanilla",
+        6.5
+      ],
+      [
+        "PROT_BAR_CHOC",
+        "protein_bar_chocolate",
+        3.5
+      ],
+      [
+        "GYM_TOWEL",
+        "gym_towel",
+        12.0
+      ],
+      [
+        "WATER_BOTTLE",
+        "water_bottle",
+        18.0
+      ]
+    ]
+  },
+  "initial_state": {
+    "defaults": {
+      "initial_members": 6,
+      "initial_classes": 4
+    },
+    "types": {
+      "initial_members": "int",
+      "initial_classes": "int"
+    }
+  }
+}

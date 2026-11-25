@@ -13,6 +13,7 @@ from eden_business_simulator.businesses.base import (
     DEFAULT_TAX_TYPE,
     compute_tax,
 )
+from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.models import Clock
 
 
@@ -35,6 +36,7 @@ class EcommerceSimulator(BusinessSimulator):
         self.order_counter = 0
         self.payment_counter = 0
         self.event_counter = 0
+        self.catalog = WeightedEventCatalog(self.rng)
 
     def initialize(self, seed: int) -> None:
         self.rng.seed(seed)
@@ -47,8 +49,15 @@ class EcommerceSimulator(BusinessSimulator):
         self.order_counter = 0
         self.payment_counter = 0
         self.event_counter = 0
+        self.catalog = WeightedEventCatalog(self.rng)
+        definition = getattr(self, "definition", None)
+        if definition is not None and "currencies" in definition.domain:
+            self._CURRENCIES = tuple(definition.domain["currencies"])
+        self._build_catalog()
 
-        initial_products = 20
+        initial_products = self.config.initial_state_overrides.get(
+            "initial_products", 20
+        )
         initial_customers = self.config.initial_state_overrides.get(
             "initial_customers", 5
         )
@@ -74,181 +83,241 @@ class EcommerceSimulator(BusinessSimulator):
         ]
 
     def next_event(self, clock: Clock) -> dict[str, Any]:
-        event_type = self._choose_event_type()
+        event_type = self.catalog.choose(hour=clock.now.hour, context=self)
+        if event_type is None:
+            event_type = "customer_created"
         self.event_counter += 1
+        return self._emit(event_type, clock)
 
-        if event_type == "customer_created":
-            customer = self._create_customer()
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "customer_id": customer["customer_id"],
-                    "name": customer["name"],
-                    "email": customer["email"],
-                    "registered_at": customer["registered_at"].isoformat(),
-                },
-            }
+    def _emit(self, event_type: str, clock: Clock) -> dict[str, Any]:
+        method = getattr(self, f"_emit_{event_type}", None)
+        if method is None:
+            raise RuntimeError(f"Unhandled event type: {event_type}")
+        return method(clock)
 
-        if event_type == "product_viewed":
+    def _build_catalog(self) -> None:
+        guards = {
+            "has_customers_and_products": lambda ctx: len(ctx.customers) > 0
+            and len(ctx.products) > 0,
+            "has_cart_items": lambda ctx: any(
+                items for items in ctx.carts.values()
+            ),
+            "has_placed_orders": lambda ctx: any(
+                o["status"] == "placed" for o in ctx.orders
+            ),
+            "has_paid_orders": lambda ctx: any(
+                o["status"] == "paid" for o in ctx.orders
+            ),
+            "has_products": lambda ctx: len(ctx.products) > 0,
+            "has_shipped_orders": lambda ctx: any(
+                o["status"] == "shipped" for o in ctx.orders
+            ),
+        }
+        if getattr(self, "definition", None) is not None:
+            from eden_business_simulator.framework.definition import (
+                build_weighted_catalog,
+            )
+
+            self.catalog = build_weighted_catalog(self.definition, self.rng, guards)
+            return
+        for event_type, weight, guard_name in [
+            ("customer_created", 5.0, None),
+            ("product_viewed", 30.0, "has_customers_and_products"),
+            ("cart_updated", 20.0, "has_customers_and_products"),
+            ("checkout_started", 8.0, "has_cart_items"),
+            ("payment_info_entered", 6.0, "has_cart_items"),
+            ("order_placed", 10.0, "has_cart_items"),
+            ("payment_processed", 15.0, "has_placed_orders"),
+            ("order_shipped", 5.0, "has_paid_orders"),
+            ("inventory_adjusted", 5.0, "has_products"),
+            ("refund_issued", 2.0, "has_shipped_orders"),
+        ]:
+            self.catalog.register(
+                event_type,
+                base_weight=weight,
+                guard=guards[guard_name] if guard_name else None,
+            )
+
+    def _emit_customer_created(self, clock: Clock) -> dict[str, Any]:
+        event_type = "customer_created"
+        customer = self._create_customer()
+        return {
+            "event_type": event_type,
+            "payload": {
+                "customer_id": customer["customer_id"],
+                "name": customer["name"],
+                "email": customer["email"],
+                "registered_at": customer["registered_at"].isoformat(),
+            },
+        }
+
+    def _emit_product_viewed(self, clock: Clock) -> dict[str, Any]:
+        event_type = "product_viewed"
+        customer = self.rng.choice(self.customers)
+        product = self.rng.choice(self.products)
+        return {
+            "event_type": event_type,
+            "payload": {
+                "customer_id": customer["customer_id"],
+                "product_id": product["product_id"],
+                "viewed_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_cart_updated(self, clock: Clock) -> dict[str, Any]:
+        event_type = "cart_updated"
+        customer = self.rng.choice(self.customers)
+        product = self.rng.choice(self.products)
+        qty = self.rng.randint(1, 3)
+        if self.rng.random() < 0.2:
+            qty = 0
+        self._update_cart(customer["customer_id"], product, qty)
+        return {
+            "event_type": event_type,
+            "payload": {
+                "customer_id": customer["customer_id"],
+                "items": [
+                    {"product_id": item["product_id"], "quantity": item["quantity"]}
+                    for item in self.carts.get(customer["customer_id"], [])
+                ],
+                "updated_at": clock.now.isoformat(),
+            },
+        }
+
+    def _emit_checkout_started(self, clock: Clock) -> dict[str, Any]:
+        event_type = "checkout_started"
+        customers_with_items = [cid for cid, items in self.carts.items() if items]
+        if not customers_with_items:
             customer = self.rng.choice(self.customers)
             product = self.rng.choice(self.products)
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "customer_id": customer["customer_id"],
-                    "product_id": product["product_id"],
-                    "viewed_at": clock.now.isoformat(),
-                },
-            }
+            self._update_cart(customer["customer_id"], product, 1)
+            customers_with_items = [customer["customer_id"]]
+        customer_id = self.rng.choice(customers_with_items)
+        return {
+            "event_type": event_type,
+            "payload": {
+                "customer_id": customer_id,
+                "cart_items": [
+                    {"product_id": item["product_id"], "quantity": item["quantity"]}
+                    for item in self.carts.get(customer_id, [])
+                ],
+                "started_at": clock.now.isoformat(),
+            },
+        }
 
-        if event_type == "cart_updated":
+    def _emit_payment_info_entered(self, clock: Clock) -> dict[str, Any]:
+        event_type = "payment_info_entered"
+        customers_with_items = [cid for cid, items in self.carts.items() if items]
+        if not customers_with_items:
             customer = self.rng.choice(self.customers)
             product = self.rng.choice(self.products)
-            qty = self.rng.randint(1, 3)
-            if self.rng.random() < 0.2:
-                qty = 0
-            self._update_cart(customer["customer_id"], product, qty)
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "customer_id": customer["customer_id"],
-                    "items": [
-                        {"product_id": item["product_id"], "quantity": item["quantity"]}
-                        for item in self.carts.get(customer["customer_id"], [])
-                    ],
-                    "updated_at": clock.now.isoformat(),
-                },
-            }
+            self._update_cart(customer["customer_id"], product, 1)
+            customers_with_items = [customer["customer_id"]]
+        customer_id = self.rng.choice(customers_with_items)
+        return {
+            "event_type": event_type,
+            "payload": {
+                "customer_id": customer_id,
+                "payment_method": self.rng.choice(["card", "paypal", "apple_pay"]),
+                "entered_at": clock.now.isoformat(),
+            },
+        }
 
-        if event_type == "checkout_started":
-            customers_with_items = [cid for cid, items in self.carts.items() if items]
-            if not customers_with_items:
-                customer = self.rng.choice(self.customers)
-                product = self.rng.choice(self.products)
-                self._update_cart(customer["customer_id"], product, 1)
-                customers_with_items = [customer["customer_id"]]
-            customer_id = self.rng.choice(customers_with_items)
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "customer_id": customer_id,
-                    "cart_items": [
-                        {"product_id": item["product_id"], "quantity": item["quantity"]}
-                        for item in self.carts.get(customer_id, [])
-                    ],
-                    "started_at": clock.now.isoformat(),
-                },
-            }
+    def _emit_order_placed(self, clock: Clock) -> dict[str, Any]:
+        event_type = "order_placed"
+        customer, order = self._place_order(clock)
+        return {
+            "event_type": event_type,
+            "payload": {
+                "order_id": order["order_id"],
+                "customer_id": customer["customer_id"],
+                "items": order["items"],
+                "placed_at": order["placed_at"].isoformat(),
+                "subtotal": order["subtotal"],
+                "tax_amount": order["tax_amount"],
+                "tax_type": order["tax_type"],
+                "total": order["total"],
+                "currency": order["currency"],
+            },
+        }
 
-        if event_type == "payment_info_entered":
-            customers_with_items = [cid for cid, items in self.carts.items() if items]
-            if not customers_with_items:
-                customer = self.rng.choice(self.customers)
-                product = self.rng.choice(self.products)
-                self._update_cart(customer["customer_id"], product, 1)
-                customers_with_items = [customer["customer_id"]]
-            customer_id = self.rng.choice(customers_with_items)
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "customer_id": customer_id,
-                    "payment_method": self.rng.choice(["card", "paypal", "apple_pay"]),
-                    "entered_at": clock.now.isoformat(),
-                },
-            }
+    def _emit_payment_processed(self, clock: Clock) -> dict[str, Any]:
+        event_type = "payment_processed"
+        order = self.rng.choice(
+            [o for o in self.orders if o["status"] == "placed"]
+        )
+        self.payment_counter += 1
+        order["status"] = "paid"
+        order["payment_id"] = f"pay_{self.payment_counter:06d}"
+        status = self.rng.choice(["approved", "approved", "approved", "declined"])
+        if status == "declined":
+            order["status"] = "payment_failed"
+        return {
+            "event_type": event_type,
+            "payload": {
+                "order_id": order["order_id"],
+                "payment_id": order["payment_id"],
+                "amount": order["total"],
+                "tax_amount": order["tax_amount"],
+                "tax_type": order["tax_type"],
+                "currency": order["currency"],
+                "status": status,
+                "processed_at": clock.now.isoformat(),
+            },
+        }
 
-        if event_type == "order_placed":
-            customer, order = self._place_order(clock)
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "order_id": order["order_id"],
-                    "customer_id": customer["customer_id"],
-                    "items": order["items"],
-                    "placed_at": order["placed_at"].isoformat(),
-                    "subtotal": order["subtotal"],
-                    "tax_amount": order["tax_amount"],
-                    "tax_type": order["tax_type"],
-                    "total": order["total"],
-                    "currency": order["currency"],
-                },
-            }
+    def _emit_order_shipped(self, clock: Clock) -> dict[str, Any]:
+        event_type = "order_shipped"
+        order = self.rng.choice(
+            [o for o in self.orders if o["status"] == "paid"]
+        )
+        order["status"] = "shipped"
+        return {
+            "event_type": event_type,
+            "payload": {
+                "order_id": order["order_id"],
+                "shipped_at": clock.now.isoformat(),
+                "carrier": self.rng.choice(["FedEx", "UPS", "DHL", "USPS"]),
+                "tracking_number": self.faker.bothify("TRK-##########"),
+            },
+        }
 
-        if event_type == "payment_processed":
-            order = self.rng.choice(
-                [o for o in self.orders if o["status"] == "placed"]
-            )
-            self.payment_counter += 1
-            order["status"] = "paid"
-            order["payment_id"] = f"pay_{self.payment_counter:06d}"
-            status = self.rng.choice(["approved", "approved", "approved", "declined"])
-            if status == "declined":
-                order["status"] = "payment_failed"
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "order_id": order["order_id"],
-                    "payment_id": order["payment_id"],
-                    "amount": order["total"],
-                    "tax_amount": order["tax_amount"],
-                    "tax_type": order["tax_type"],
-                    "currency": order["currency"],
-                    "status": status,
-                    "processed_at": clock.now.isoformat(),
-                },
-            }
+    def _emit_inventory_adjusted(self, clock: Clock) -> dict[str, Any]:
+        event_type = "inventory_adjusted"
+        product = self.rng.choice(self.products)
+        delta = self.rng.choice([-5, -3, -1, 10, 20, 50])
+        reason = self.rng.choice(["sale", "restock", "correction", "return"])
+        product["inventory"] += delta
+        return {
+            "event_type": event_type,
+            "payload": {
+                "product_id": product["product_id"],
+                "sku": product["sku"],
+                "delta": delta,
+                "new_inventory": product["inventory"],
+                "reason": reason,
+                "adjusted_at": clock.now.isoformat(),
+            },
+        }
 
-        if event_type == "order_shipped":
-            order = self.rng.choice(
-                [o for o in self.orders if o["status"] == "paid"]
-            )
-            order["status"] = "shipped"
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "order_id": order["order_id"],
-                    "shipped_at": clock.now.isoformat(),
-                    "carrier": self.rng.choice(["FedEx", "UPS", "DHL", "USPS"]),
-                    "tracking_number": self.faker.bothify("TRK-##########"),
-                },
-            }
-
-        if event_type == "inventory_adjusted":
-            product = self.rng.choice(self.products)
-            delta = self.rng.choice([-5, -3, -1, 10, 20, 50])
-            reason = self.rng.choice(["sale", "restock", "correction", "return"])
-            product["inventory"] += delta
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "product_id": product["product_id"],
-                    "sku": product["sku"],
-                    "delta": delta,
-                    "new_inventory": product["inventory"],
-                    "reason": reason,
-                    "adjusted_at": clock.now.isoformat(),
-                },
-            }
-
-        if event_type == "refund_issued":
-            order = self.rng.choice(
-                [o for o in self.orders if o["status"] == "shipped"]
-            )
-            order["status"] = "refunded"
-            return {
-                "event_type": event_type,
-                "payload": {
-                    "order_id": order["order_id"],
-                    "amount": order["total"],
-                    "tax_amount": order["tax_amount"],
-                    "tax_type": order["tax_type"],
-                    "currency": order["currency"],
-                    "reason": self.rng.choice(["defective", "not_as_described", "changed_mind"]),
-                    "issued_at": clock.now.isoformat(),
-                },
-            }
-
-        raise RuntimeError(f"Unhandled event type: {event_type}")
+    def _emit_refund_issued(self, clock: Clock) -> dict[str, Any]:
+        event_type = "refund_issued"
+        order = self.rng.choice(
+            [o for o in self.orders if o["status"] == "shipped"]
+        )
+        order["status"] = "refunded"
+        return {
+            "event_type": event_type,
+            "payload": {
+                "order_id": order["order_id"],
+                "amount": order["total"],
+                "tax_amount": order["tax_amount"],
+                "tax_type": order["tax_type"],
+                "currency": order["currency"],
+                "reason": self.rng.choice(["defective", "not_as_described", "changed_mind"]),
+                "issued_at": clock.now.isoformat(),
+            },
+        }
 
     def state_snapshot(self) -> dict[str, Any]:
         return {
@@ -354,35 +423,6 @@ class EcommerceSimulator(BusinessSimulator):
         self.orders.append(order)
         self.carts[customer_id] = []
         return customer, order
-
-    def _choose_event_type(self) -> str:
-        if not self.customers:
-            return "customer_created"
-
-        weights: dict[str, float] = {
-            "customer_created": 5.0,
-            "product_viewed": 30.0,
-            "cart_updated": 20.0,
-            "inventory_adjusted": 5.0,
-        }
-
-        if any(self.carts[cid] for cid in self.carts):
-            weights["checkout_started"] = 8.0
-            weights["payment_info_entered"] = 6.0
-            weights["order_placed"] = 10.0
-
-        if any(o["status"] == "placed" for o in self.orders):
-            weights["payment_processed"] = 15.0
-
-        if any(o["status"] == "paid" for o in self.orders):
-            weights["order_shipped"] = 5.0
-
-        if any(o["status"] == "shipped" for o in self.orders):
-            weights["refund_issued"] = 2.0
-
-        types = list(weights.keys())
-        values = list(weights.values())
-        return self.rng.choices(types, weights=values, k=1)[0]
 
     def _orders_by_status(self) -> dict[str, int]:
         counts: dict[str, int] = {}

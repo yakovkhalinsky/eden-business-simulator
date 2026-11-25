@@ -168,6 +168,7 @@ class CafeSimulator(BusinessSimulator):
     def initialize(self, seed: int) -> None:
         self.rng.seed(seed)
         self.faker.seed_instance(seed)
+        self._apply_definition_domain()
 
         # Reset deterministically so the same seed always produces the same run.
         self.id_gen = IdGenerator(self.rng)
@@ -278,6 +279,33 @@ class CafeSimulator(BusinessSimulator):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _apply_definition_domain(self) -> None:
+        definition = getattr(self, "definition", None)
+        if definition is None:
+            return
+        domain = definition.domain
+        if "menu" in domain:
+            self._MENU = [
+                (
+                    item["name"],
+                    item["category"],
+                    item["price"],
+                    [
+                        RecipeComponent(*component)
+                        for component in item.get("recipe", [])
+                    ],
+                )
+                for item in domain["menu"]
+            ]
+        if "ingredients" in domain:
+            self._INGREDIENTS = [tuple(row) for row in domain["ingredients"]]
+        if "tables" in domain:
+            self._TABLES = [tuple(row) for row in domain["tables"]]
+        if "staff" in domain:
+            self._STAFF = [tuple(row) for row in domain["staff"]]
+        if "supplier_id" in domain:
+            self._SUPPLIER = domain["supplier_id"]
+
     def _register_ingredients(self) -> None:
         for ingredient_id, name, unit, unit_cost in self._INGREDIENTS:
             self.ledger.register_ingredient(
@@ -330,70 +358,51 @@ class CafeSimulator(BusinessSimulator):
         def closing_phase(ctx: "CafeSimulator") -> bool:
             return ctx._phase == "close"
 
-        self.catalog.register(
-            "staff_clocked_in",
-            base_weight=5.0,
-            guard=lambda ctx: has_opened(ctx)
+        guards = {
+            "staff_can_clock_in": lambda ctx: has_opened(ctx)
             and not ctx._shift_closed
             and staff_available(ctx),
-        )
-        self.catalog.register(
-            "menu_item_added",
-            base_weight=5.0,
-            guard=menu_incomplete,
-        )
-        self.catalog.register(
-            "supplier_delivery_received",
-            base_weight=5.0,
-            guard=lambda ctx: menu_ready(ctx) and deliveries_pending(ctx),
-        )
-        self.catalog.register(
-            "table_occupied",
-            base_weight=10.0,
-            guard=lambda ctx: in_service(ctx) and tables_available(ctx),
-        )
-        self.catalog.register(
-            "order_taken",
-            base_weight=15.0,
-            guard=lambda ctx: in_service(ctx) and menu_ready(ctx),
-        )
-        self.catalog.register(
-            "item_fired_to_kitchen",
-            base_weight=12.0,
-            guard=lambda ctx: in_service(ctx) and has_new_tickets(ctx),
-        )
-        self.catalog.register(
-            "item_prepared",
-            base_weight=12.0,
-            guard=lambda ctx: in_service(ctx) and has_fired_tickets(ctx),
-        )
-        self.catalog.register(
-            "order_paid",
-            base_weight=10.0,
-            guard=lambda ctx: in_service(ctx) and has_ready_orders(ctx),
-        )
-        self.catalog.register(
-            "loyalty_points_earned",
-            base_weight=5.0,
-            guard=lambda ctx: in_service(ctx)
+            "menu_incomplete": menu_incomplete,
+            "deliveries_pending": lambda ctx: menu_ready(ctx) and deliveries_pending(ctx),
+            "tables_available_in_service": lambda ctx: in_service(ctx) and tables_available(ctx),
+            "in_service_menu_ready": lambda ctx: in_service(ctx) and menu_ready(ctx),
+            "has_new_tickets_in_service": lambda ctx: in_service(ctx) and has_new_tickets(ctx),
+            "has_fired_tickets_in_service": lambda ctx: in_service(ctx) and has_fired_tickets(ctx),
+            "has_ready_orders_in_service": lambda ctx: in_service(ctx) and has_ready_orders(ctx),
+            "has_paid_orders_and_members_in_service": lambda ctx: in_service(ctx)
             and has_paid_orders(ctx)
             and has_members(ctx),
-        )
-        self.catalog.register(
-            "wastage_logged",
-            base_weight=3.0,
-            guard=lambda ctx: has_ingredients(ctx) and not ctx._shift_closed,
-        )
-        self.catalog.register(
-            "stock_count_recorded",
-            base_weight=2.0,
-            guard=lambda ctx: has_ingredients(ctx) and not ctx._shift_closed,
-        )
-        self.catalog.register(
-            "shift_closed",
-            base_weight=10.0,
-            guard=lambda ctx: closing_phase(ctx) and not ctx._shift_closed,
-        )
+            "has_ingredients_not_closed": lambda ctx: has_ingredients(ctx)
+            and not ctx._shift_closed,
+            "closing_phase_not_closed": lambda ctx: closing_phase(ctx)
+            and not ctx._shift_closed,
+        }
+        if getattr(self, "definition", None) is not None:
+            from eden_business_simulator.framework.definition import (
+                build_weighted_catalog,
+            )
+
+            scheduler = self.definition.scheduler() or self.scheduler
+            self.catalog = build_weighted_catalog(
+                self.definition, self.rng, guards, scheduler
+            )
+            return
+        # Fallback for direct construction without configure(): original weights.
+        for event_type, weight, guard in [
+            ("staff_clocked_in", 5.0, guards["staff_can_clock_in"]),
+            ("menu_item_added", 5.0, guards["menu_incomplete"]),
+            ("supplier_delivery_received", 5.0, guards["deliveries_pending"]),
+            ("table_occupied", 10.0, guards["tables_available_in_service"]),
+            ("order_taken", 15.0, guards["in_service_menu_ready"]),
+            ("item_fired_to_kitchen", 12.0, guards["has_new_tickets_in_service"]),
+            ("item_prepared", 12.0, guards["has_fired_tickets_in_service"]),
+            ("order_paid", 10.0, guards["has_ready_orders_in_service"]),
+            ("loyalty_points_earned", 5.0, guards["has_paid_orders_and_members_in_service"]),
+            ("wastage_logged", 3.0, guards["has_ingredients_not_closed"]),
+            ("stock_count_recorded", 2.0, guards["has_ingredients_not_closed"]),
+            ("shift_closed", 10.0, guards["closing_phase_not_closed"]),
+        ]:
+            self.catalog.register(event_type, base_weight=weight, guard=guard)
 
     def _enqueue_setup(self) -> None:
         self._pending_setup.append("shift_opened")

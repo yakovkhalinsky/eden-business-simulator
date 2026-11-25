@@ -98,6 +98,21 @@ class GymSimulator(BusinessSimulator):
         self._cancelled_members = []
         self._frozen_members = []
         self.at_risk_members = set()
+        definition = getattr(self, "definition", None)
+        if definition is not None:
+            domain = definition.domain
+            if "tiers" in domain:
+                self._TIERS = tuple(domain["tiers"])
+            if "plans" in domain:
+                self._PLANS = {
+                    name: dict(plan) for name, plan in domain["plans"].items()
+                }
+            if "class_types" in domain:
+                self._CLASS_TYPES = tuple(domain["class_types"])
+            if "retail_skus" in domain:
+                self._RETAIL_SKUS = tuple(
+                    tuple(row) for row in domain["retail_skus"]
+                )
 
         # Seed a small roster of instructors and trainers.
         for role in ("instructor", "instructor", "trainer", "front_desk"):
@@ -254,88 +269,47 @@ class GymSimulator(BusinessSimulator):
         def has_failed_payments(ctx: "GymSimulator") -> bool:
             return len(ctx.payments_failed) > 0
 
-        self.catalog.register("membership_enrolled", base_weight=3.0)
-        self.catalog.register(
-            "check_in_recorded",
-            base_weight=15.0,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "class_scheduled",
-            base_weight=4.0,
-            guard=lambda ctx: len(ctx.staff.all()) > 0,
-        )
-        self.catalog.register(
-            "class_booked",
-            base_weight=8.0,
-            guard=lambda ctx: has_active_members(ctx) and has_classes(ctx),
-        )
-        self.catalog.register(
-            "class_cancelled",
-            base_weight=3.0,
-            guard=has_bookings,
-        )
-        self.catalog.register(
-            "class_attended",
-            base_weight=10.0,
-            guard=has_bookings,
-        )
-        self.catalog.register(
-            "pt_session_scheduled",
-            base_weight=4.0,
-            guard=lambda ctx: has_active_members(ctx)
+        guards = {
+            "has_active_members": has_active_members,
+            "has_staff": lambda ctx: len(ctx.staff.all()) > 0,
+            "has_active_members_and_classes": lambda ctx: has_active_members(ctx)
+            and has_classes(ctx),
+            "has_bookings": has_bookings,
+            "has_active_members_and_trainer": lambda ctx: has_active_members(ctx)
             and any(s["role"] == "trainer" for s in ctx.staff.all()),
-        )
-        self.catalog.register(
-            "workout_logged",
-            base_weight=7.0,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "progress_recorded",
-            base_weight=3.0,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "retail_purchase_made",
-            base_weight=4.0,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "payment_failed",
-            base_weight=2.0,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "retention_outreach_sent",
-            base_weight=2.0,
-            guard=has_failed_payments,
-        )
-        self.catalog.register(
-            "membership_renewed",
-            base_weight=4.0,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "membership_upgraded",
-            base_weight=3.0,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "membership_downgraded",
-            base_weight=2.5,
-            guard=has_active_members,
-        )
-        self.catalog.register(
-            "membership_frozen",
-            base_weight=4.0,
-            guard=has_at_risk_active_members,
-        )
-        self.catalog.register(
-            "membership_cancelled",
-            base_weight=1.0,
-            guard=has_active_members,
-        )
+            "has_failed_payments": has_failed_payments,
+            "has_at_risk_active_members": has_at_risk_active_members,
+        }
+        if getattr(self, "definition", None) is not None:
+            from eden_business_simulator.framework.definition import (
+                build_weighted_catalog,
+            )
+
+            scheduler = self.definition.scheduler() or self._build_schedule()
+            self.catalog = build_weighted_catalog(
+                self.definition, self.rng, guards, scheduler
+            )
+            return
+        for event_type, weight, guard in [
+            ("membership_enrolled", 3.0, None),
+            ("check_in_recorded", 15.0, guards["has_active_members"]),
+            ("class_scheduled", 4.0, guards["has_staff"]),
+            ("class_booked", 8.0, guards["has_active_members_and_classes"]),
+            ("class_cancelled", 3.0, guards["has_bookings"]),
+            ("class_attended", 10.0, guards["has_bookings"]),
+            ("pt_session_scheduled", 4.0, guards["has_active_members_and_trainer"]),
+            ("workout_logged", 7.0, guards["has_active_members"]),
+            ("progress_recorded", 3.0, guards["has_active_members"]),
+            ("retail_purchase_made", 4.0, guards["has_active_members"]),
+            ("payment_failed", 2.0, guards["has_active_members"]),
+            ("retention_outreach_sent", 2.0, guards["has_failed_payments"]),
+            ("membership_renewed", 4.0, guards["has_active_members"]),
+            ("membership_upgraded", 3.0, guards["has_active_members"]),
+            ("membership_downgraded", 2.5, guards["has_active_members"]),
+            ("membership_frozen", 4.0, guards["has_at_risk_active_members"]),
+            ("membership_cancelled", 1.0, guards["has_active_members"]),
+        ]:
+            self.catalog.register(event_type, base_weight=weight, guard=guard)
 
     def _active_member_ids(self) -> list[str]:
         """Return member IDs that are neither cancelled nor frozen."""

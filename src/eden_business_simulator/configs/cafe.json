@@ -1,0 +1,370 @@
+{
+  "schema_version": 1,
+  "business_type": "cafe",
+  "version": "1.0",
+  "events": [
+    {
+      "event_type": "shift_opened",
+      "base_weight": 0,
+      "guard": null,
+      "in_catalog": false
+    },
+    {
+      "event_type": "staff_clocked_in",
+      "base_weight": 5,
+      "guard": "staff_can_clock_in",
+      "in_catalog": true
+    },
+    {
+      "event_type": "menu_item_added",
+      "base_weight": 5,
+      "guard": "menu_incomplete",
+      "in_catalog": true
+    },
+    {
+      "event_type": "supplier_delivery_received",
+      "base_weight": 5,
+      "guard": "deliveries_pending",
+      "in_catalog": true
+    },
+    {
+      "event_type": "table_occupied",
+      "base_weight": 10,
+      "guard": "tables_available_in_service",
+      "in_catalog": true
+    },
+    {
+      "event_type": "order_taken",
+      "base_weight": 15,
+      "guard": "in_service_menu_ready",
+      "in_catalog": true
+    },
+    {
+      "event_type": "item_fired_to_kitchen",
+      "base_weight": 12,
+      "guard": "has_new_tickets_in_service",
+      "in_catalog": true
+    },
+    {
+      "event_type": "item_prepared",
+      "base_weight": 12,
+      "guard": "has_fired_tickets_in_service",
+      "in_catalog": true
+    },
+    {
+      "event_type": "order_paid",
+      "base_weight": 10,
+      "guard": "has_ready_orders_in_service",
+      "in_catalog": true
+    },
+    {
+      "event_type": "loyalty_points_earned",
+      "base_weight": 5,
+      "guard": "has_paid_orders_and_members_in_service",
+      "in_catalog": true
+    },
+    {
+      "event_type": "wastage_logged",
+      "base_weight": 3,
+      "guard": "has_ingredients_not_closed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "stock_count_recorded",
+      "base_weight": 2,
+      "guard": "has_ingredients_not_closed",
+      "in_catalog": true
+    },
+    {
+      "event_type": "shift_closed",
+      "base_weight": 10,
+      "guard": "closing_phase_not_closed",
+      "in_catalog": true
+    }
+  ],
+  "dayparts": [
+    {
+      "name": "open",
+      "start_hour": 6,
+      "end_hour": 8,
+      "weight_modifiers": {
+        "staff_clocked_in": 2.0,
+        "supplier_delivery_received": 1.5,
+        "table_occupied": 0.5,
+        "order_taken": 0.3
+      },
+      "default_modifier": 0.2
+    },
+    {
+      "name": "breakfast_rush",
+      "start_hour": 8,
+      "end_hour": 11,
+      "weight_modifiers": {
+        "table_occupied": 2.5,
+        "order_taken": 3.0,
+        "item_fired_to_kitchen": 2.0,
+        "item_prepared": 2.0,
+        "order_paid": 2.0
+      },
+      "default_modifier": 1.0
+    },
+    {
+      "name": "lunch_rush",
+      "start_hour": 11,
+      "end_hour": 14,
+      "weight_modifiers": {
+        "table_occupied": 2.5,
+        "order_taken": 3.0,
+        "item_fired_to_kitchen": 2.0,
+        "item_prepared": 2.0,
+        "order_paid": 2.0
+      },
+      "default_modifier": 1.0
+    },
+    {
+      "name": "afternoon",
+      "start_hour": 14,
+      "end_hour": 17,
+      "weight_modifiers": {
+        "order_taken": 0.7,
+        "wastage_logged": 1.5,
+        "stock_count_recorded": 1.0
+      },
+      "default_modifier": 0.6
+    },
+    {
+      "name": "close",
+      "start_hour": 17,
+      "end_hour": 6,
+      "weight_modifiers": {
+        "order_taken": 0.1,
+        "stock_count_recorded": 2.0,
+        "wastage_logged": 1.5,
+        "shift_closed": 5.0
+      },
+      "default_modifier": 0.3
+    }
+  ],
+  "domain": {
+    "supplier_id": "sup_01",
+    "tables": [
+      [
+        "tbl_01",
+        2
+      ],
+      [
+        "tbl_02",
+        2
+      ],
+      [
+        "tbl_03",
+        4
+      ],
+      [
+        "tbl_04",
+        4
+      ],
+      [
+        "tbl_05",
+        6
+      ],
+      [
+        "tbl_06",
+        2
+      ],
+      [
+        "tbl_07",
+        2
+      ],
+      [
+        "tbl_08",
+        4
+      ]
+    ],
+    "staff": [
+      [
+        "manager",
+        "Avery Manager"
+      ],
+      [
+        "barista",
+        "Jordan Barista"
+      ],
+      [
+        "barista",
+        "Taylor Barista"
+      ],
+      [
+        "server",
+        "Morgan Server"
+      ],
+      [
+        "chef",
+        "Casey Chef"
+      ]
+    ],
+    "menu": [
+      {
+        "name": "oat flat white",
+        "category": "coffee",
+        "price": 5.5,
+        "recipe": [
+          [
+            "ing_001",
+            "espresso",
+            0.036,
+            "kg"
+          ],
+          [
+            "ing_002",
+            "oat_milk",
+            0.24,
+            "l"
+          ]
+        ]
+      },
+      {
+        "name": "espresso",
+        "category": "coffee",
+        "price": 3.0,
+        "recipe": [
+          [
+            "ing_001",
+            "espresso",
+            0.018,
+            "kg"
+          ]
+        ]
+      },
+      {
+        "name": "croissant",
+        "category": "pastry",
+        "price": 4.5,
+        "recipe": [
+          [
+            "ing_003",
+            "pastry_dough",
+            0.08,
+            "kg"
+          ],
+          [
+            "ing_004",
+            "butter",
+            0.02,
+            "kg"
+          ]
+        ]
+      },
+      {
+        "name": "eggs benedict",
+        "category": "brunch",
+        "price": 16.0,
+        "recipe": [
+          [
+            "ing_005",
+            "eggs",
+            2.0,
+            "each"
+          ],
+          [
+            "ing_006",
+            "ham",
+            0.06,
+            "kg"
+          ],
+          [
+            "ing_007",
+            "hollandaise",
+            0.08,
+            "l"
+          ]
+        ]
+      },
+      {
+        "name": "fresh orange juice",
+        "category": "cold",
+        "price": 6.0,
+        "recipe": [
+          [
+            "ing_008",
+            "oranges",
+            3.0,
+            "each"
+          ],
+          [
+            "ing_009",
+            "ice",
+            0.1,
+            "kg"
+          ]
+        ]
+      }
+    ],
+    "ingredients": [
+      [
+        "ing_001",
+        "espresso",
+        "kg",
+        18.0
+      ],
+      [
+        "ing_002",
+        "oat_milk",
+        "l",
+        1.8
+      ],
+      [
+        "ing_003",
+        "pastry_dough",
+        "kg",
+        6.0
+      ],
+      [
+        "ing_004",
+        "butter",
+        "kg",
+        8.0
+      ],
+      [
+        "ing_005",
+        "eggs",
+        "each",
+        0.5
+      ],
+      [
+        "ing_006",
+        "ham",
+        "kg",
+        12.0
+      ],
+      [
+        "ing_007",
+        "hollandaise",
+        "l",
+        15.0
+      ],
+      [
+        "ing_008",
+        "oranges",
+        "each",
+        0.8
+      ],
+      [
+        "ing_009",
+        "ice",
+        "kg",
+        1.0
+      ]
+    ]
+  },
+  "initial_state": {
+    "defaults": {
+      "opening_float": 150.0,
+      "initial_members": 5
+    },
+    "types": {
+      "opening_float": "float",
+      "initial_members": "int"
+    }
+  }
+}

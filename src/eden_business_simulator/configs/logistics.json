@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "business_type": "logistics",
+  "version": "1.0",
+  "events": [
+    {
+      "event_type": "shipment_created",
+      "base_weight": 6,
+      "guard": null,
+      "in_catalog": true
+    },
+    {
+      "event_type": "route_planned",
+      "base_weight": 4,
+      "guard": "has_drivers_and_unrouted",
+      "in_catalog": true
+    },
+    {
+      "event_type": "driver_assigned",
+      "base_weight": 4,
+      "guard": "has_routes",
+      "in_catalog": true
+    },
+    {
+      "event_type": "vehicle_departed",
+      "base_weight": 4,
+      "guard": "has_routes",
+      "in_catalog": true
+    },
+    {
+      "event_type": "stop_arrived",
+      "base_weight": 8,
+      "guard": "has_active_routes",
+      "in_catalog": true
+    },
+    {
+      "event_type": "delivery_attempted",
+      "base_weight": 8,
+      "guard": "has_unattempted_stops",
+      "in_catalog": true
+    },
+    {
+      "event_type": "delivery_delivered",
+      "base_weight": 6,
+      "guard": "has_delivered",
+      "in_catalog": true
+    },
+    {
+      "event_type": "proof_of_delivery_captured",
+      "base_weight": 5,
+      "guard": "has_delivered",
+      "in_catalog": true
+    },
+    {
+      "event_type": "delivery_exception_recorded",
+      "base_weight": 3,
+      "guard": "has_failed_attempts",
+      "in_catalog": true
+    },
+    {
+      "event_type": "customer_feedback_received",
+      "base_weight": 3,
+      "guard": "has_delivered",
+      "in_catalog": true
+    },
+    {
+      "event_type": "return_initiated",
+      "base_weight": 2,
+      "guard": "has_delivered",
+      "in_catalog": true
+    },
+    {
+      "event_type": "vehicle_location_update",
+      "base_weight": 5,
+      "guard": "has_active_routes",
+      "in_catalog": true
+    },
+    {
+      "event_type": "route_completed",
+      "base_weight": 3,
+      "guard": "has_active_routes",
+      "in_catalog": true
+    },
+    {
+      "event_type": "fuel_stop_logged",
+      "base_weight": 1.5,
+      "guard": "has_active_routes",
+      "in_catalog": true
+    }
+  ],
+  "dayparts": [
+    {
+      "name": "early",
+      "start_hour": 4,
+      "end_hour": 8,
+      "weight_modifiers": {
+        "shipment_created": 1.5,
+        "route_planned": 2.0,
+        "driver_assigned": 2.0,
+        "vehicle_departed": 1.5
+      },
+      "default_modifier": 0.5
+    },
+    {
+      "name": "morning",
+      "start_hour": 8,
+      "end_hour": 12,
+      "weight_modifiers": {
+        "vehicle_departed": 3.0,
+        "stop_arrived": 3.0,
+        "delivery_attempted": 3.0,
+        "vehicle_location_update": 2.0
+      },
+      "default_modifier": 1.0
+    },
+    {
+      "name": "afternoon",
+      "start_hour": 12,
+      "end_hour": 17,
+      "weight_modifiers": {
+        "stop_arrived": 3.0,
+        "delivery_attempted": 3.0,
+        "proof_of_delivery_captured": 2.5,
+        "vehicle_location_update": 1.5
+      },
+      "default_modifier": 1.0
+    },
+    {
+      "name": "evening",
+      "start_hour": 17,
+      "end_hour": 21,
+      "weight_modifiers": {
+        "route_completed": 3.0,
+        "customer_feedback_received": 2.0,
+        "fuel_stop_logged": 2.0
+      },
+      "default_modifier": 0.6
+    },
+    {
+      "name": "night",
+      "start_hour": 21,
+      "end_hour": 4,
+      "weight_modifiers": {
+        "return_initiated": 2.0,
+        "shipment_created": 1.0
+      },
+      "default_modifier": 0.2
+    }
+  ],
+  "domain": {
+    "hub_id": "hub_east",
+    "service_levels": [
+      "same_day",
+      "next_day",
+      "standard"
+    ],
+    "exception_reasons": [
+      "customer_not_home",
+      "address_not_found",
+      "access_restricted",
+      "package_damaged",
+      "refused_by_customer"
+    ]
+  },
+  "initial_state": {
+    "defaults": {
+      "initial_drivers": 4,
+      "initial_vehicles": 3,
+      "initial_shipments": 8
+    },
+    "types": {
+      "initial_drivers": "int",
+      "initial_vehicles": "int",
+      "initial_shipments": "int"
+    }
+  }
+}

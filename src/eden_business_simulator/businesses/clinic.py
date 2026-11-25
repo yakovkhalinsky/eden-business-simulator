@@ -90,6 +90,15 @@ class ClinicSimulator(BusinessSimulator):
         self.lab_orders = []
         self.claims = []
         self.catalog = WeightedEventCatalog(self.rng)
+        definition = getattr(self, "definition", None)
+        if definition is not None:
+            domain = definition.domain
+            if "appointment_types" in domain:
+                self._APPOINTMENT_TYPES = tuple(domain["appointment_types"])
+            if "icd10" in domain:
+                self._ICD10 = tuple(tuple(row) for row in domain["icd10"])
+            if "cpt" in domain:
+                self._CPT = tuple(tuple(row) for row in domain["cpt"])
 
         for _ in range(self.config.initial_state_overrides.get("initial_providers", 3)):
             self.providers.create(specialty="family_medicine")
@@ -143,9 +152,6 @@ class ClinicSimulator(BusinessSimulator):
         def has_patients(ctx: "ClinicSimulator") -> bool:
             return len(ctx.patients.all()) > 0
 
-        def has_providers(ctx: "ClinicSimulator") -> bool:
-            return len(ctx.providers.all()) > 0
-
         def has_scheduled(ctx: "ClinicSimulator") -> bool:
             return any(a["status"] == "scheduled" for a in ctx.appointments)
 
@@ -161,54 +167,42 @@ class ClinicSimulator(BusinessSimulator):
         def has_claims(ctx: "ClinicSimulator") -> bool:
             return len(ctx.claims) > 0
 
-        self.catalog.register(
-            "appointment_scheduled", base_weight=8.0, guard=has_patients
-        )
-        self.catalog.register(
-            "appointment_cancelled", base_weight=2.0, guard=has_scheduled
-        )
-        self.catalog.register(
-            "appointment_rescheduled", base_weight=2.0, guard=has_scheduled
-        )
-        self.catalog.register(
-            "patient_checked_in", base_weight=6.0, guard=has_scheduled
-        )
-        self.catalog.register(
-            "vitals_recorded", base_weight=5.0, guard=has_checked_in
-        )
-        self.catalog.register(
-            "encounter_started", base_weight=6.0, guard=has_checked_in
-        )
-        self.catalog.register(
-            "diagnosis_recorded", base_weight=5.0, guard=has_active_encounters
-        )
-        self.catalog.register(
-            "procedure_performed", base_weight=5.0, guard=has_active_encounters
-        )
-        self.catalog.register(
-            "lab_order_placed", base_weight=4.0, guard=has_active_encounters
-        )
-        self.catalog.register(
-            "lab_result_received", base_weight=3.0, guard=has_diagnosed
-        )
-        self.catalog.register(
-            "medication_prescribed", base_weight=3.0, guard=has_diagnosed
-        )
-        self.catalog.register(
-            "claim_submitted", base_weight=3.0, guard=has_diagnosed
-        )
-        self.catalog.register(
-            "claim_adjudicated", base_weight=2.0, guard=has_claims
-        )
-        self.catalog.register(
-            "payment_posted", base_weight=2.0, guard=has_claims
-        )
-        self.catalog.register(
-            "referral_sent", base_weight=2.0, guard=has_diagnosed
-        )
-        self.catalog.register(
-            "no_show_recorded", base_weight=2.0, guard=has_scheduled
-        )
+        guards = {
+            "has_patients": has_patients,
+            "has_scheduled": has_scheduled,
+            "has_checked_in": has_checked_in,
+            "has_active_encounters": has_active_encounters,
+            "has_diagnosed": has_diagnosed,
+            "has_claims": has_claims,
+        }
+        if getattr(self, "definition", None) is not None:
+            from eden_business_simulator.framework.definition import (
+                build_weighted_catalog,
+            )
+
+            self.catalog = build_weighted_catalog(self.definition, self.rng, guards)
+            return
+        for event_type, weight, guard_name in [
+            ("appointment_scheduled", 8.0, "has_patients"),
+            ("appointment_cancelled", 2.0, "has_scheduled"),
+            ("appointment_rescheduled", 2.0, "has_scheduled"),
+            ("patient_checked_in", 6.0, "has_scheduled"),
+            ("vitals_recorded", 5.0, "has_checked_in"),
+            ("encounter_started", 6.0, "has_checked_in"),
+            ("diagnosis_recorded", 5.0, "has_active_encounters"),
+            ("procedure_performed", 5.0, "has_active_encounters"),
+            ("lab_order_placed", 4.0, "has_active_encounters"),
+            ("lab_result_received", 3.0, "has_diagnosed"),
+            ("medication_prescribed", 3.0, "has_diagnosed"),
+            ("claim_submitted", 3.0, "has_diagnosed"),
+            ("claim_adjudicated", 2.0, "has_claims"),
+            ("payment_posted", 2.0, "has_claims"),
+            ("referral_sent", 2.0, "has_diagnosed"),
+            ("no_show_recorded", 2.0, "has_scheduled"),
+        ]:
+            self.catalog.register(
+                event_type, base_weight=weight, guard=guards[guard_name]
+            )
 
     def _create_patient(self) -> dict[str, Any]:
         actor = self.patients.create()

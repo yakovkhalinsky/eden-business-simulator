@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "business_type": "ecommerce",
+  "version": "1.0",
+  "events": [
+    {
+      "event_type": "customer_created",
+      "base_weight": 5,
+      "guard": null,
+      "in_catalog": true
+    },
+    {
+      "event_type": "product_viewed",
+      "base_weight": 30,
+      "guard": "has_customers_and_products",
+      "in_catalog": true
+    },
+    {
+      "event_type": "cart_updated",
+      "base_weight": 20,
+      "guard": "has_customers_and_products",
+      "in_catalog": true
+    },
+    {
+      "event_type": "checkout_started",
+      "base_weight": 8,
+      "guard": "has_cart_items",
+      "in_catalog": true
+    },
+    {
+      "event_type": "payment_info_entered",
+      "base_weight": 6,
+      "guard": "has_cart_items",
+      "in_catalog": true
+    },
+    {
+      "event_type": "order_placed",
+      "base_weight": 10,
+      "guard": "has_cart_items",
+      "in_catalog": true
+    },
+    {
+      "event_type": "payment_processed",
+      "base_weight": 15,
+      "guard": "has_placed_orders",
+      "in_catalog": true
+    },
+    {
+      "event_type": "order_shipped",
+      "base_weight": 5,
+      "guard": "has_paid_orders",
+      "in_catalog": true
+    },
+    {
+      "event_type": "inventory_adjusted",
+      "base_weight": 5,
+      "guard": "has_products",
+      "in_catalog": true
+    },
+    {
+      "event_type": "refund_issued",
+      "base_weight": 2,
+      "guard": "has_shipped_orders",
+      "in_catalog": true
+    }
+  ],
+  "dayparts": [],
+  "domain": {
+    "currencies": [
+      "USD",
+      "EUR",
+      "GBP",
+      "AUD",
+      "CAD"
+    ]
+  },
+  "initial_state": {
+    "defaults": {
+      "initial_customers": 5,
+      "initial_products": 20
+    },
+    "types": {
+      "initial_customers": "int",
+      "initial_products": "int"
+    }
+  }
+}

@@ -114,6 +114,27 @@ Output adapters are lightweight sinks for batch-mode emission:
 
 HTTP output posts one event per request. For very high throughput, a batched adapter is a future extension point.
 
+## Business definitions (Phase 0, configuration-driven runtime)
+
+Each business has a versioned JSON definition in
+`src/eden_business_simulator/configs/<business_type>.json` (`schema_version: 1`),
+validated by the Pydantic models in `framework/definition.py`. A definition
+declares the event catalogue (base weights and guard *names*), dayparts,
+domain data (menus, plans, parts, price lists), and the declared
+initial-state keys, defaults and types.
+
+Guard and emitter logic stays in code: `framework.definition.build_weighted_catalog`
+resolves a definition's guard names against the guard callables a simulator
+supplies, and an unknown guard name, a negative weight, a duplicate or
+missing event, or an unknown daypart target is a hard validation failure.
+`BusinessSimulator.configure()` loads the definition, validates
+`SimulatorConfig.initial_state_overrides` against the declared keys (unknown
+keys fail), and records `definition_hash` (a stable SHA-256 of the canonical
+definition JSON) so a run can be tied to the exact configuration that
+produced it. Tuning a business — weights, dayparts, domain data, initial
+state — is therefore a config change; adding a new guard, emitter or payload
+shape remains a code change.
+
 ## `BusinessSimulator` base class and lifecycle
 
 All simulators inherit from `BusinessSimulator` in `src/eden_business_simulator/businesses/base.py`.
