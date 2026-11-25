@@ -57,6 +57,7 @@ class SaaSSimulator(BusinessSimulator):
         self.invoice_counter = 0
         self.payment_counter = 0
         self.ticket_counter = 0
+        self.churn_counter = 0
         self.catalog = WeightedEventCatalog(self.rng)
 
     def initialize(self, seed: int) -> None:
@@ -71,6 +72,7 @@ class SaaSSimulator(BusinessSimulator):
         self.invoice_counter = 0
         self.payment_counter = 0
         self.ticket_counter = 0
+        self.churn_counter = 0
         self.catalog = WeightedEventCatalog(self.rng)
         definition = getattr(self, "definition", None)
         if definition is not None:
@@ -338,6 +340,7 @@ class SaaSSimulator(BusinessSimulator):
         subscription = self.subscriptions.get(account["account_id"])
         if subscription:
             subscription["status"] = "cancelled"
+        self.churn_counter += 1
         return {
             "event_type": "churned",
             "payload": {
@@ -354,6 +357,33 @@ class SaaSSimulator(BusinessSimulator):
             "subscription_count": len(self.subscriptions),
             "invoice_count": len(self.invoices),
             "ticket_count": len(self.tickets),
+        }
+
+    def position_snapshot(self) -> dict[str, Any]:
+        active_subs = [
+            s for s in self.subscriptions.values() if s["status"] == "active"
+        ]
+        open_invoices = [i for i in self.invoices if i["status"] == "open"]
+        paid_invoices = [i for i in self.invoices if i["status"] == "paid"]
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {
+                "active_subscriptions": len(active_subs),
+                "mrr": round(sum(s["monthly_fee"] for s in active_subs), 2),
+                "account_count": len(self.accounts),
+                "open_invoices_count": len(open_invoices),
+                "open_invoices_amount": round(
+                    sum(i["amount"] for i in open_invoices), 2
+                ),
+                "paid_revenue_total": round(
+                    sum(i["amount"] for i in paid_invoices), 2
+                ),
+                "open_tickets_count": sum(
+                    1 for t in self.tickets if t["status"] == "open"
+                ),
+                "churned_count": self.churn_counter,
+            },
         }
 
     def _create_account(self) -> dict[str, Any]:

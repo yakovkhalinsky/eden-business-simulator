@@ -25,6 +25,7 @@ class ContinuousRunner:
     """
 
     SNAPSHOT_KEY = "latest"
+    POSITION_KEY = "position"
 
     def __init__(
         self,
@@ -99,8 +100,36 @@ class ContinuousRunner:
             "data": self.simulator.state_snapshot(),
         }
         self.storage.write_snapshot(self.SNAPSHOT_KEY, snapshot_data)
+        # Phase 1: the position read API lives under its own key so the
+        # "latest" snapshot/checkpoint/restore semantics are untouched.
+        position_fn = getattr(self.simulator, "position_snapshot", None)
+        if callable(position_fn):
+            position_data = {
+                **position_fn(),
+                "stream_id": self.config.stream_id,
+                "sequence": last_sequence,
+            }
+            self.storage.write_snapshot(self.POSITION_KEY, position_data)
         self.storage.write_checkpoint(last_sequence)
         self._last_checkpoint_time = time.monotonic()
+
+    def _emit_position_snapshot_event(self) -> None:
+        """Emit the opt-in in-stream position snapshot event (Phase 1)."""
+        position_fn = getattr(self.simulator, "position_snapshot", None)
+        if not callable(position_fn):
+            return
+        envelope = EventEnvelope.from_event(
+            business_type=self.config.business_type,
+            event_type="state_snapshot_recorded",
+            payload=position_fn(),
+            timestamp=self.clock.now,
+            stream_id=self.config.stream_id,
+            sequence=self._next_sequence,
+        )
+        self.storage.append(envelope)
+        if self.output is not None:
+            self.output.write(envelope)
+        self._next_sequence += 1
 
     def _pace(self) -> None:
         if not self.realtime or self._wall_start is None:
@@ -144,6 +173,12 @@ class ContinuousRunner:
 
                 self._events_emitted += 1
                 self._next_sequence += 1
+
+                every = getattr(
+                    self.config, "position_snapshot_every_events", 0
+                )
+                if every and self._events_emitted % every == 0:
+                    self._emit_position_snapshot_event()
 
                 if self._should_checkpoint():
                     self._write_checkpoint()

@@ -160,6 +160,23 @@ Lifecycle:
 5. `state_snapshot()` — returns a serializable snapshot of internal state for checkpoints.
 6. `restore(snapshot)` — optional hook to resume from a snapshot during daemon startup.
 
+### Position snapshots (Phase 1, state read API)
+
+`position_snapshot()` is separate from `state_snapshot()`: where
+`state_snapshot()` is checkpoint/resume state, `position_snapshot()` is
+the read API for external consumers — where the business stands right
+now (cash, stock, open work). It returns a versioned envelope
+`{"schema_version": 1, "business_type": ..., "position": {...}}` with
+per-business sections; runners/CLI add stream/sequence around it.
+
+Exposure: (i) `ContinuousRunner` writes the position at every
+checkpoint under the snapshot key `"position"` (the `"latest"`
+snapshot/checkpoint/restore path is untouched), readable via the
+`position` CLI command; (ii) opt-in in-stream events —
+`SimulatorConfig.position_snapshot_every_events` (0 = off, the
+default) makes both runners emit a `state_snapshot_recorded` event
+whose payload is the position envelope every N business events.
+
 Simulators must never rely on global random state. They should create local `random.Random` and `faker.Faker` instances seeded from `initialize(seed)`.
 
 ## Framework helpers

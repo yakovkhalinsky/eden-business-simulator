@@ -275,6 +275,38 @@ class CafeSimulator(BusinessSimulator):
             "waste_total": self.ledger.waste_total() if self.ledger else 0.0,
         }
 
+    def position_snapshot(self) -> dict[str, Any]:
+        stock = {}
+        if self.ledger:
+            for ingredient_id in self.ledger.all_ingredients():
+                stock[ingredient_id] = {
+                    "qty": self.ledger.qty(ingredient_id),
+                    "unit": self.ledger._stock[ingredient_id]["unit"],
+                }
+        tickets_by_status: dict[str, int] = {}
+        for ticket in self.tickets:
+            tickets_by_status[ticket["status"]] = (
+                tickets_by_status.get(ticket["status"], 0) + 1
+            )
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {
+                "cash_sales": round(self._cash_sales, 2),
+                "card_sales": round(self._card_sales, 2),
+                "total_sales": round(self._cash_sales + self._card_sales, 2),
+                "opening_float": self._opening_float,
+                "stock": stock,
+                "orders_by_status": self._orders_by_status(),
+                "tickets_by_status": tickets_by_status,
+                "tables_occupied": sum(
+                    1 for t in self.tables.values() if t["occupied"]
+                ),
+                "tables_total": len(self.tables),
+                "waste_total": self.ledger.waste_total() if self.ledger else 0.0,
+            },
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

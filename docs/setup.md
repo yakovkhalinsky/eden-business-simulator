@@ -93,6 +93,22 @@ Key flags:
 
 If `--stream-id` is omitted, the daemon generates an identifier that includes the current UTC timestamp, for example `gym_seed42_20260802131900`. Replay and `status` need that exact value, so always pass an explicit `--stream-id` when you intend to replay or inspect a stream later.
 
+## Read a stream's current position
+
+The daemon stores a position snapshot (cash, stock, open work — the
+Phase 1 state read API) at every checkpoint. Read it back as JSON:
+
+```bash
+uv run eden-business-simulator position \
+  --storage sqlite --storage-uri gym_demo.db \
+  --stream-id gym_demo_seed42
+```
+
+It errors clearly if no position has been stored for that stream yet.
+To also embed position snapshots in the stream itself, start the
+daemon with `--position-snapshot-every-events N` (default 0 = off):
+a `state_snapshot_recorded` event is then emitted every N events.
+
 ## Replay stored events
 
 `replay` reads a persisted stream and re-emits the events at original or scaled timing.

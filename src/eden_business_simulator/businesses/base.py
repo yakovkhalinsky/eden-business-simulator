@@ -68,6 +68,23 @@ class BusinessSimulator(ABC):
         """Return a serializable view of the simulator's current state."""
         ...
 
+    def position_snapshot(self) -> dict[str, Any]:
+        """Return the current business position as a versioned envelope.
+
+        Separate from ``state_snapshot()`` (which is checkpoint/resume
+        state): this is the read API for external consumers — where the
+        business stands right now (cash, stock, open work). Runners/CLI
+        may add stream/sequence/timestamp around this envelope.
+
+        The default derives a minimal position from ``state_snapshot()``;
+        every real business overrides it with domain sections.
+        """
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {"state": self.state_snapshot()},
+        }
+
     def restore(self, snapshot: dict[str, Any]) -> None:
         """Restore simulator state from a durable snapshot.
 

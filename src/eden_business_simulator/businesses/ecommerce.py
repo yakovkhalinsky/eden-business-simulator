@@ -327,6 +327,33 @@ class EcommerceSimulator(BusinessSimulator):
             "orders_by_status": self._orders_by_status(),
         }
 
+    def position_snapshot(self) -> dict[str, Any]:
+        paid_orders = [
+            o
+            for o in self.orders
+            if o["status"] in ("paid", "shipped", "refunded")
+        ]
+        refunded = [o for o in self.orders if o["status"] == "refunded"]
+        active_carts = {cid: items for cid, items in self.carts.items() if items}
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {
+                "revenue_total": round(sum(o["total"] for o in paid_orders), 2),
+                "orders_by_status": self._orders_by_status(),
+                "inventory": {
+                    p["product_id"]: p["inventory"] for p in self.products
+                },
+                "active_carts_count": len(active_carts),
+                "active_cart_items": sum(
+                    item["quantity"]
+                    for items in active_carts.values()
+                    for item in items
+                ),
+                "refunds_total": round(sum(o["total"] for o in refunded), 2),
+            },
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

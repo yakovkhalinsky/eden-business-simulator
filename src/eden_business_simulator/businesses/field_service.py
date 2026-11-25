@@ -49,6 +49,7 @@ class FieldServiceSimulator(BusinessSimulator):
         self.invoices: list[dict[str, Any]] = []
         self.vehicles: list[dict[str, Any]] = []
         self.catalog = WeightedEventCatalog(self.rng)
+        self._parts_used_total = 0
 
     def initialize(self, seed: int) -> None:
         self.rng.seed(seed)
@@ -66,6 +67,7 @@ class FieldServiceSimulator(BusinessSimulator):
         self.invoices = []
         self.vehicles = []
         self.catalog = WeightedEventCatalog(self.rng)
+        self._parts_used_total = 0
         definition = getattr(self, "definition", None)
         if definition is not None:
             domain = definition.domain
@@ -115,6 +117,24 @@ class FieldServiceSimulator(BusinessSimulator):
             "tech_count": len(self.techs.all()),
             "vehicle_count": len(self.vehicles),
             "tickets_by_status": self._tickets_by_status(),
+        }
+
+    def position_snapshot(self) -> dict[str, Any]:
+        open_invoices = [i for i in self.invoices if i["status"] == "open"]
+        paid_invoices = [i for i in self.invoices if i["status"] == "paid"]
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {
+                "tickets_by_status": self._tickets_by_status(),
+                "open_invoices_count": len(open_invoices),
+                "open_invoices_amount": round(
+                    sum(i["total"] for i in open_invoices), 2
+                ),
+                "paid_total": round(sum(i["total"] for i in paid_invoices), 2),
+                "tech_count": len(self.techs.all()),
+                "parts_used_total": self._parts_used_total,
+            },
         }
 
     # ------------------------------------------------------------------
@@ -351,6 +371,7 @@ class FieldServiceSimulator(BusinessSimulator):
             return self._emit_diagnosis_recorded(clock)
         ticket = self.rng.choice(diagnosed)
         part = self.rng.choice(self._PARTS)
+        self._parts_used_total += 1
         return {
             "event_type": "parts_used",
             "payload": {

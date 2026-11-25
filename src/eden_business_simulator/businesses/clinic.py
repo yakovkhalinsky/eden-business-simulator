@@ -144,6 +144,31 @@ class ClinicSimulator(BusinessSimulator):
             "appointments_by_status": self._appointments_by_status(),
         }
 
+    def position_snapshot(self) -> dict[str, Any]:
+        encounters_by_status: dict[str, int] = {}
+        for encounter in self.encounters:
+            encounters_by_status[encounter["status"]] = (
+                encounters_by_status.get(encounter["status"], 0) + 1
+            )
+        open_claims = [c for c in self.claims if c["status"] == "submitted"]
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {
+                "appointments_by_status": self._appointments_by_status(),
+                "encounters_by_status": encounters_by_status,
+                "open_claims_count": len(open_claims),
+                "open_claims_amount": round(
+                    sum(c["amount"] for c in open_claims), 2
+                ),
+                "lab_orders_pending": sum(
+                    1 for lo in self.lab_orders if lo["status"] == "pending"
+                ),
+                "patient_count": len(self.patients.all()),
+                "provider_count": len(self.providers.all()),
+            },
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

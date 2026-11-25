@@ -173,6 +173,30 @@ class GymSimulator(BusinessSimulator):
             "payments_failed_count": len(self.payments_failed),
         }
 
+    def position_snapshot(self) -> dict[str, Any]:
+        members_by_status: dict[str, int] = {}
+        for membership in self.memberships.values():
+            members_by_status[membership["status"]] = (
+                members_by_status.get(membership["status"], 0) + 1
+            )
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {
+                "members_by_status": members_by_status,
+                "active_count": members_by_status.get("active", 0),
+                "frozen_count": members_by_status.get("frozen", 0),
+                "cancelled_count": members_by_status.get("cancelled", 0),
+                "at_risk_count": len(self.at_risk_members),
+                "class_count": len(self.classes),
+                "booking_count": len(self.bookings),
+                "failed_payments_count": len(self.payments_failed),
+                "failed_payments_amount": round(
+                    sum(f["amount"] for f in self.payments_failed), 2
+                ),
+            },
+        }
+
     def restore(self, snapshot: dict[str, Any]) -> None:
         """Restore from a checkpoint snapshot.
 

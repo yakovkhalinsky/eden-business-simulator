@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -125,6 +126,11 @@ def daemon(
     max_events: int = typer.Option(
         0, "--max-events", help="Stop after this many events (0 = unlimited)."
     ),
+    position_snapshot_every_events: int = typer.Option(
+        0,
+        "--position-snapshot-every-events",
+        help="Emit a state_snapshot_recorded position event every N events (0 = off).",
+    ),
     realtime: bool = typer.Option(
         True,
         "--realtime/--no-realtime",
@@ -152,6 +158,7 @@ def daemon(
         stream_id=stream_id_value,
         checkpoint_interval_seconds=checkpoint_interval,
         checkpoint_interval_events=checkpoint_events,
+        position_snapshot_every_events=position_snapshot_every_events,
     )
 
     simulator = load_simulator(config.business_type)
@@ -342,6 +349,47 @@ def checkpoint(
         )
     finally:
         storage_adapter.close()
+
+
+@app.command()
+def position(
+    stream_id: str = typer.Option(
+        ..., "--stream-id", help="Stream identifier to read the position for."
+    ),
+    storage: str = typer.Option(
+        "sqlite", "--storage", help="Storage backend: 'sqlite', 'ndjson', or 'memory'."
+    ),
+    storage_uri: Optional[str] = typer.Option(
+        None, "--storage-uri", help="Storage URI or file path."
+    ),
+) -> None:
+    """Print the stored current position for a stream as JSON.
+
+    Reads the ``position`` snapshot written by the daemon at each
+    checkpoint (Phase 1 state read API).
+    """
+    if storage_uri is None:
+        if storage == "sqlite":
+            storage_uri = "eden_business_simulator.db"
+        elif storage == "ndjson":
+            typer.echo("--storage-uri is required for ndjson position.", err=True)
+            raise typer.Exit(code=1)
+        else:
+            storage_uri = "memory://"
+
+    adapter = load_storage_adapter(storage, storage_uri, stream_id)
+    try:
+        stored = adapter.read_snapshot(ContinuousRunner.POSITION_KEY)
+        if stored is None:
+            typer.echo(
+                f"No position stored for stream '{stream_id}'. "
+                "Run the daemon for that stream first so it checkpoints.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        typer.echo(json.dumps(stored, indent=2, default=str))
+    finally:
+        adapter.close()
 
 
 @app.command()

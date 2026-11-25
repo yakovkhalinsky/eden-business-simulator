@@ -50,6 +50,25 @@ class Runner:
                 )
                 self.adapter.write(envelope)
                 self.events_emitted += 1
+                every = getattr(
+                    self.config, "position_snapshot_every_events", 0
+                )
+                position_fn = getattr(
+                    self.simulator, "position_snapshot", None
+                )
+                if (
+                    every
+                    and self.events_emitted % every == 0
+                    and callable(position_fn)
+                ):
+                    self.adapter.write(
+                        EventEnvelope.from_event(
+                            business_type=self.config.business_type,
+                            event_type="state_snapshot_recorded",
+                            payload=position_fn(),
+                            timestamp=self.clock.now,
+                        )
+                    )
                 self.clock.advance()
                 if self.realtime:
                     self._pace()

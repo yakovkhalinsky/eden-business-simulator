@@ -55,6 +55,7 @@ class LogisticsSimulator(BusinessSimulator):
         self.returns: list[dict[str, Any]] = []
         self.catalog = WeightedEventCatalog(self.rng)
         self.hub_id = "hub_east"
+        self._fuel_cost_total = 0.0
 
     def initialize(self, seed: int) -> None:
         self.rng.seed(seed)
@@ -75,6 +76,7 @@ class LogisticsSimulator(BusinessSimulator):
         self.attempts = []
         self.feedback = []
         self.returns = []
+        self._fuel_cost_total = 0.0
         self.catalog = WeightedEventCatalog(self.rng, self._build_schedule())
         definition = getattr(self, "definition", None)
         if definition is not None:
@@ -139,6 +141,29 @@ class LogisticsSimulator(BusinessSimulator):
             "feedback_count": len(self.feedback),
             "return_count": len(self.returns),
             "shipments_by_status": self._shipments_by_status(),
+        }
+
+    def position_snapshot(self) -> dict[str, Any]:
+        routes_by_status: dict[str, int] = {}
+        for route in self.routes:
+            routes_by_status[route["status"]] = (
+                routes_by_status.get(route["status"], 0) + 1
+            )
+        return {
+            "schema_version": 1,
+            "business_type": self.business_type,
+            "position": {
+                "shipments_by_status": self._shipments_by_status(),
+                "routes_by_status": routes_by_status,
+                "deliveries_completed": sum(
+                    1 for a in self.attempts if a["outcome"] == "delivered"
+                ),
+                "exceptions_count": sum(
+                    1 for a in self.attempts if a["outcome"] != "delivered"
+                ),
+                "returns_count": len(self.returns),
+                "fuel_cost_total": round(self._fuel_cost_total, 2),
+            },
         }
 
     # ------------------------------------------------------------------
@@ -621,6 +646,7 @@ class LogisticsSimulator(BusinessSimulator):
         route = self.rng.choice(active)
         liters = round(self.rng.uniform(20.0, 60.0), 1)
         cost = round(liters * self.rng.uniform(1.6, 2.0), 2)
+        self._fuel_cost_total += cost
         tax_amount = compute_tax(cost)
         return {
             "event_type": "fuel_stop_logged",

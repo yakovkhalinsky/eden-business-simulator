@@ -26,6 +26,19 @@ class SimulatorConfig(BaseModel):
     checkpoint_interval_seconds: float = 30.0
     checkpoint_interval_events: int = 100
 
+    # Phase 1: emit a `state_snapshot_recorded` event carrying the
+    # position snapshot every N events. 0 = off (default, per D3).
+    position_snapshot_every_events: int = 0
+
+    @field_validator("position_snapshot_every_events")
+    @classmethod
+    def position_snapshot_every_events_must_be_non_negative(
+        cls, value: int
+    ) -> int:
+        if value < 0:
+            raise ValueError("position_snapshot_every_events must be non-negative")
+        return value
+
     @field_validator("duration_seconds")
     @classmethod
     def duration_must_be_non_negative(cls, value: float) -> float:
