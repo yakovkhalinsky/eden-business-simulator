@@ -191,5 +191,129 @@
       "filter_field": "status",
       "filter_value": "denied"
     }
+  ],
+  "actions": [
+    {
+      "action_type": "schedule_appointment",
+      "effect": "schedule_appointment",
+      "effect_event_type": "appointment_scheduled",
+      "params": [
+        {
+          "name": "patient_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "appointment_type",
+          "type": "string",
+          "required": true,
+          "enum": [
+            "new_patient_visit",
+            "annual_physical",
+            "follow_up",
+            "sick_visit"
+          ]
+        },
+        {
+          "name": "starts_in_hours",
+          "type": "number",
+          "required": true,
+          "min": 0.25,
+          "max": 720
+        }
+      ]
+    },
+    {
+      "action_type": "cancel_appointment",
+      "effect": "cancel_appointment",
+      "effect_event_type": "appointment_cancelled",
+      "params": [
+        {
+          "name": "appointment_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "enum": [
+            "patient_request",
+            "provider_unavailable",
+            "no_longer_needed"
+          ]
+        }
+      ]
+    },
+    {
+      "action_type": "reschedule_appointment",
+      "effect": "reschedule_appointment",
+      "effect_event_type": "appointment_rescheduled",
+      "params": [
+        {
+          "name": "appointment_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "starts_in_hours",
+          "type": "number",
+          "required": true,
+          "min": 0.25,
+          "max": 720
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "enum": [
+            "patient_request",
+            "provider_unavailable"
+          ]
+        }
+      ]
+    },
+    {
+      "action_type": "add_provider_shift",
+      "effect": "add_provider_shift",
+      "effect_event_type": "provider_shift_added",
+      "params": [
+        {
+          "name": "provider_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "shift_hours",
+          "type": "number",
+          "min": 1,
+          "max": 16
+        }
+      ]
+    },
+    {
+      "action_type": "chase_claim",
+      "effect": "chase_claim",
+      "effect_event_type": "claim_chased",
+      "params": [
+        {
+          "name": "claim_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "enum": [
+            "email",
+            "phone",
+            "portal"
+          ]
+        }
+      ]
+    }
   ]
 }

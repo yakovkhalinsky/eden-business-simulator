@@ -242,7 +242,22 @@ catalogue-emitted types.
 
 Phase 3 ships the cafe pilot: `place_supplier_order`,
 `adjust_price` (approval-gated), `clock_staff_in`, `clock_staff_out`.
-The other eight businesses declare no actions yet (Phase 4).
+
+Phase 4a adds the gym and clinic catalogues. Gym: `freeze_membership`
+and `unfreeze_membership` (action-only effect `membership_unfrozen`),
+`schedule_class`, `cancel_class` (action-only effect
+`class_session_cancelled`; cancelled classes are excluded from
+`class_booked` selection), `send_retention_outreach`, and
+`adjust_plan_price` (approval-gated; reprices the plan and every
+existing membership on that tier, action-only effect
+`plan_price_adjusted`). Clinic: `schedule_appointment`,
+`cancel_appointment`, `reschedule_appointment` (all reusing the
+catalogued appointment event types), `add_provider_shift`
+(action-only effect `provider_shift_added` — a roster-availability
+record only; the clinic simulation has no shift state that gates
+events), and `chase_claim` (action-only effect `claim_chased`,
+tracked as `chase_count`/`last_chased_at` on the claim). The
+remaining six businesses declare no actions yet (Phase 4b/4c).
 
 Simulators must never rely on global random state. They should create local `random.Random` and `faker.Faker` instances seeded from `initialize(seed)`.
 

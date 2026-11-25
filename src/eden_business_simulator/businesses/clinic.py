@@ -9,6 +9,7 @@ from typing import Any
 from faker import Faker
 
 from eden_business_simulator.businesses.base import (
+    ActionRejected,
     BusinessSimulator,
     DEFAULT_TAX_TYPE,
     compute_tax,
@@ -65,6 +66,7 @@ class ClinicSimulator(BusinessSimulator):
         self.encounters: list[dict[str, Any]] = []
         self.lab_orders: list[dict[str, Any]] = []
         self.claims: list[dict[str, Any]] = []
+        self.provider_shifts: list[dict[str, Any]] = []
         self.catalog = WeightedEventCatalog(self.rng)
 
     def initialize(self, seed: int) -> None:
@@ -89,6 +91,7 @@ class ClinicSimulator(BusinessSimulator):
         self.encounters = []
         self.lab_orders = []
         self.claims = []
+        self.provider_shifts = []
         self.catalog = WeightedEventCatalog(self.rng)
         definition = getattr(self, "definition", None)
         if definition is not None:
@@ -228,6 +231,148 @@ class ClinicSimulator(BusinessSimulator):
             self.catalog.register(
                 event_type, base_weight=weight, guard=guards[guard_name]
             )
+
+    # ------------------------------------------------------------------
+    # Action handlers (Phase 4a). Each validates before mutating and
+    # consumes no RNG, so a rejection leaves state and stream untouched.
+    # New action-only effect types: provider_shift_added, claim_chased.
+    # Note: provider shifts are a roster-availability record only —
+    # the clinic simulation has no shift state that gates events.
+    # ------------------------------------------------------------------
+
+    def _appointment_or_reject(
+        self, appointment_id: str
+    ) -> dict[str, Any]:
+        appt = next(
+            (a for a in self.appointments
+             if a["appointment_id"] == appointment_id),
+            None,
+        )
+        if appt is None:
+            raise ActionRejected(f"unknown_appointment:{appointment_id}")
+        return appt
+
+    def _scheduled_appointment_or_reject(
+        self, appointment_id: str
+    ) -> dict[str, Any]:
+        appt = self._appointment_or_reject(appointment_id)
+        if appt["status"] != "scheduled":
+            raise ActionRejected(
+                f"appointment_not_scheduled:{appointment_id}"
+            )
+        return appt
+
+    def _apply_schedule_appointment(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        if self.patients.get(params["patient_id"]) is None:
+            raise ActionRejected(f"unknown_patient:{params['patient_id']}")
+        if self.providers.get(params["provider_id"]) is None:
+            raise ActionRejected(f"unknown_provider:{params['provider_id']}")
+        appt_time = clock.now + timedelta(hours=float(params["starts_in_hours"]))
+        appt = {
+            "appointment_id": self.id_gen.next("appt"),
+            "patient_id": params["patient_id"],
+            "provider_id": params["provider_id"],
+            "appointment_type": params["appointment_type"],
+            "scheduled_time": appt_time,
+            "status": "scheduled",
+        }
+        self.appointments.append(appt)
+        return {
+            "event_type": "appointment_scheduled",
+            "payload": {
+                "appointment_id": appt["appointment_id"],
+                "patient_id": appt["patient_id"],
+                "provider_id": appt["provider_id"],
+                "appointment_type": appt["appointment_type"],
+                "scheduled_at": clock.now.isoformat(),
+                "appointment_time": appt_time.isoformat(),
+                "reason": "manager_action",
+                "channel": "manager",
+            },
+        }
+
+    def _apply_cancel_appointment(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        appt = self._scheduled_appointment_or_reject(params["appointment_id"])
+        appt["status"] = "cancelled"
+        return {
+            "event_type": "appointment_cancelled",
+            "payload": {
+                "appointment_id": appt["appointment_id"],
+                "patient_id": appt["patient_id"],
+                "provider_id": appt["provider_id"],
+                "reason": params.get("reason", "patient_request"),
+                "cancelled_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_reschedule_appointment(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        appt = self._scheduled_appointment_or_reject(params["appointment_id"])
+        new_time = clock.now + timedelta(hours=float(params["starts_in_hours"]))
+        appt["scheduled_time"] = new_time
+        return {
+            "event_type": "appointment_rescheduled",
+            "payload": {
+                "appointment_id": appt["appointment_id"],
+                "patient_id": appt["patient_id"],
+                "provider_id": appt["provider_id"],
+                "new_appointment_time": new_time.isoformat(),
+                "reason": params.get("reason", "patient_request"),
+                "rescheduled_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_add_provider_shift(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        if self.providers.get(params["provider_id"]) is None:
+            raise ActionRejected(f"unknown_provider:{params['provider_id']}")
+        shift_hours = params.get("shift_hours", 8)
+        self.provider_shifts.append(
+            {
+                "provider_id": params["provider_id"],
+                "date": clock.now.date(),
+                "hours": shift_hours,
+            }
+        )
+        return {
+            "event_type": "provider_shift_added",
+            "payload": {
+                "provider_id": params["provider_id"],
+                "shift_date": clock.now.date().isoformat(),
+                "shift_hours": shift_hours,
+                "added_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_chase_claim(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        claim = next(
+            (c for c in self.claims if c["claim_id"] == params["claim_id"]),
+            None,
+        )
+        if claim is None:
+            raise ActionRejected(f"unknown_claim:{params['claim_id']}")
+        if claim["status"] not in ("submitted", "adjudicated"):
+            raise ActionRejected(f"claim_not_chaseable:{params['claim_id']}")
+        claim["chase_count"] = claim.get("chase_count", 0) + 1
+        claim["last_chased_at"] = clock.now.isoformat()
+        return {
+            "event_type": "claim_chased",
+            "payload": {
+                "claim_id": claim["claim_id"],
+                "patient_id": claim["patient_id"],
+                "channel": params.get("channel", "email"),
+                "chase_count": claim["chase_count"],
+                "chased_at": clock.now.isoformat(),
+            },
+        }
 
     def _create_patient(self) -> dict[str, Any]:
         actor = self.patients.create()

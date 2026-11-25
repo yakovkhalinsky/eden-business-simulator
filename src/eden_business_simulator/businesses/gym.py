@@ -9,6 +9,7 @@ from typing import Any
 from faker import Faker
 
 from eden_business_simulator.businesses.base import (
+    ActionRejected,
     BusinessSimulator,
     DEFAULT_TAX_TYPE,
     compute_tax,
@@ -376,6 +377,172 @@ class GymSimulator(BusinessSimulator):
         self.classes.append(cls)
         return cls
 
+    # ------------------------------------------------------------------
+    # Action handlers (Phase 4a). Each validates before mutating and
+    # consumes no RNG, so a rejection leaves state and stream untouched.
+    # New action-only effect types: membership_unfrozen,
+    # class_session_cancelled, plan_price_adjusted.
+    # ------------------------------------------------------------------
+
+    def _membership_or_reject(self, member_id: str) -> dict[str, Any]:
+        membership = self.memberships.get(member_id)
+        if membership is None:
+            raise ActionRejected(f"unknown_member:{member_id}")
+        return membership
+
+    def _apply_freeze_membership(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        membership = self._membership_or_reject(params["member_id"])
+        if membership["status"] != "active":
+            raise ActionRejected(
+                f"membership_not_active:{params['member_id']}"
+            )
+        resume_days = params.get("resume_days", 30)
+        reason = params.get("reason", "manager_action")
+        membership["status"] = "frozen"
+        if params["member_id"] not in self._frozen_members:
+            self._frozen_members.append(params["member_id"])
+        self.at_risk_members.discard(params["member_id"])
+        resume_date = clock.now + timedelta(days=resume_days)
+        return {
+            "event_type": "membership_frozen",
+            "payload": {
+                "member_id": params["member_id"],
+                "membership_id": membership["membership_id"],
+                "reason": reason,
+                "frozen_at": clock.now.isoformat(),
+                "resume_date": resume_date.date().isoformat(),
+            },
+        }
+
+    def _apply_unfreeze_membership(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        membership = self._membership_or_reject(params["member_id"])
+        if membership["status"] != "frozen":
+            raise ActionRejected(
+                f"membership_not_frozen:{params['member_id']}"
+            )
+        membership["status"] = "active"
+        if params["member_id"] in self._frozen_members:
+            self._frozen_members.remove(params["member_id"])
+        return {
+            "event_type": "membership_unfrozen",
+            "payload": {
+                "member_id": params["member_id"],
+                "membership_id": membership["membership_id"],
+                "unfrozen_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_schedule_class(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        instructor_id = params.get("instructor_id")
+        if instructor_id is not None:
+            if self.staff.get(instructor_id) is None:
+                raise ActionRejected(f"unknown_instructor:{instructor_id}")
+        else:
+            instructors = [
+                s for s in self.staff.all() if s["role"] == "instructor"
+            ]
+            pool = instructors or self.staff.all()
+            if not pool:
+                raise ActionRejected("no_instructor_available")
+            instructor_id = pool[0]["staff_id"]
+        class_type = params["class_type"]
+        cls = {
+            "class_id": self.id_gen.next("cls"),
+            "class_name": f"{class_type.title()} class",
+            "class_type": class_type,
+            "instructor_id": instructor_id,
+            "capacity": params["capacity"],
+            "duration_minutes": params["duration_minutes"],
+            "status": "scheduled",
+        }
+        self.classes.append(cls)
+        return {
+            "event_type": "class_scheduled",
+            "payload": {
+                "class_id": cls["class_id"],
+                "class_name": cls["class_name"],
+                "class_type": class_type,
+                "instructor_id": instructor_id,
+                "capacity": cls["capacity"],
+                "duration_minutes": cls["duration_minutes"],
+                "scheduled_at": clock.now.isoformat(),
+                "created_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_cancel_class(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        cls = next(
+            (c for c in self.classes if c["class_id"] == params["class_id"]),
+            None,
+        )
+        if cls is None:
+            raise ActionRejected(f"unknown_class:{params['class_id']}")
+        if cls.get("status", "scheduled") == "cancelled":
+            raise ActionRejected(f"class_already_cancelled:{params['class_id']}")
+        cls["status"] = "cancelled"
+        return {
+            "event_type": "class_session_cancelled",
+            "payload": {
+                "class_id": cls["class_id"],
+                "class_name": cls["class_name"],
+                "cancelled_at": clock.now.isoformat(),
+                "reason": params.get("reason", "manager_action"),
+            },
+        }
+
+    def _apply_send_retention_outreach(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        membership = self._membership_or_reject(params["member_id"])
+        if membership["status"] == "cancelled" or (
+            params["member_id"] in self._cancelled_members
+        ):
+            raise ActionRejected(f"member_cancelled:{params['member_id']}")
+        return {
+            "event_type": "retention_outreach_sent",
+            "payload": {
+                "outreach_id": self.id_gen.next("out"),
+                "member_id": params["member_id"],
+                "channel": params.get("channel", "email"),
+                "message_type": params.get("message_type", "payment_retry"),
+                "sent_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_adjust_plan_price(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        tier = params["tier"]
+        plan = self._PLANS.get(tier)
+        if plan is None:
+            raise ActionRejected(f"unknown_tier:{tier}")
+        old_price = plan["monthly_fee"]
+        new_price = round(float(params["new_monthly_fee"]), 2)
+        plan["monthly_fee"] = new_price
+        updated = 0
+        for membership in self.memberships.values():
+            if membership["tier"] == tier:
+                membership["monthly_fee"] = new_price
+                updated += 1
+        return {
+            "event_type": "plan_price_adjusted",
+            "payload": {
+                "tier": tier,
+                "old_price": old_price,
+                "new_price": new_price,
+                "memberships_updated": updated,
+                "adjusted_at": clock.now.isoformat(),
+            },
+        }
+
     def _emit(self, event_type: str, clock: Clock) -> dict[str, Any]:
         method = getattr(self, f"_emit_{event_type}", None)
         if method is None:
@@ -435,10 +602,14 @@ class GymSimulator(BusinessSimulator):
 
     def _emit_class_booked(self, clock: Clock) -> dict[str, Any]:
         active_members = self._active_member_ids()
-        if not self.classes or not active_members:
+        # Classes cancelled via the cancel_class action are not bookable.
+        bookable = [
+            c for c in self.classes if c.get("status", "scheduled") != "cancelled"
+        ]
+        if not bookable or not active_members:
             return self._emit_check_in_recorded(clock)
         member_id = self.rng.choice(active_members)
-        cls = self.rng.choice(self.classes)
+        cls = self.rng.choice(bookable)
         booking_id = self.id_gen.next("bk")
         booking = {
             "booking_id": booking_id,

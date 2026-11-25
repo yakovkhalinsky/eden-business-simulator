@@ -257,5 +257,167 @@
       "event_type": "retail_purchase_made",
       "field": "total"
     }
+  ],
+  "actions": [
+    {
+      "action_type": "freeze_membership",
+      "effect": "freeze_membership",
+      "effect_event_type": "membership_frozen",
+      "params": [
+        {
+          "name": "member_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "resume_days",
+          "type": "integer",
+          "min": 1,
+          "max": 365
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "enum": [
+            "payment_issue",
+            "medical_hold",
+            "travel",
+            "injury",
+            "seasonal_pause",
+            "manager_action"
+          ]
+        }
+      ]
+    },
+    {
+      "action_type": "unfreeze_membership",
+      "effect": "unfreeze_membership",
+      "effect_event_type": "membership_unfrozen",
+      "params": [
+        {
+          "name": "member_id",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "action_type": "schedule_class",
+      "effect": "schedule_class",
+      "effect_event_type": "class_scheduled",
+      "params": [
+        {
+          "name": "class_type",
+          "type": "string",
+          "required": true,
+          "enum": [
+            "yoga",
+            "spin",
+            "hiit",
+            "pilates",
+            "strength",
+            "zumba"
+          ]
+        },
+        {
+          "name": "capacity",
+          "type": "integer",
+          "required": true,
+          "min": 5,
+          "max": 50
+        },
+        {
+          "name": "duration_minutes",
+          "type": "integer",
+          "required": true,
+          "enum": [
+            30,
+            45,
+            60,
+            90
+          ]
+        },
+        {
+          "name": "instructor_id",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "action_type": "cancel_class",
+      "effect": "cancel_class",
+      "effect_event_type": "class_session_cancelled",
+      "params": [
+        {
+          "name": "class_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "enum": [
+            "low_enrolment",
+            "instructor_unavailable",
+            "maintenance",
+            "manager_action"
+          ]
+        }
+      ]
+    },
+    {
+      "action_type": "send_retention_outreach",
+      "effect": "send_retention_outreach",
+      "effect_event_type": "retention_outreach_sent",
+      "params": [
+        {
+          "name": "member_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "enum": [
+            "email",
+            "sms",
+            "phone"
+          ]
+        },
+        {
+          "name": "message_type",
+          "type": "string",
+          "enum": [
+            "payment_retry",
+            "win_back"
+          ]
+        }
+      ]
+    },
+    {
+      "action_type": "adjust_plan_price",
+      "effect": "adjust_plan_price",
+      "effect_event_type": "plan_price_adjusted",
+      "requires_approval": true,
+      "params": [
+        {
+          "name": "tier",
+          "type": "string",
+          "required": true,
+          "enum": [
+            "basic",
+            "standard",
+            "premium"
+          ]
+        },
+        {
+          "name": "new_monthly_fee",
+          "type": "number",
+          "required": true,
+          "min": 1,
+          "max": 500
+        }
+      ]
+    }
   ]
 }
