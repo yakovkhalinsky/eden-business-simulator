@@ -401,5 +401,42 @@
       "kind": "count",
       "event_type": "stock_count_recorded"
     }
+  ],
+  "actions": [
+    {
+      "action_type": "place_supplier_order",
+      "effect": "place_supplier_order",
+      "effect_event_type": "supplier_delivery_received",
+      "params": [
+        {"name": "ingredient_id", "type": "string", "required": true},
+        {"name": "qty", "type": "number", "required": true, "min": 0.01, "max": 10000}
+      ]
+    },
+    {
+      "action_type": "adjust_price",
+      "effect": "adjust_price",
+      "effect_event_type": "menu_price_adjusted",
+      "requires_approval": true,
+      "params": [
+        {"name": "item_id", "type": "string", "required": true},
+        {"name": "new_price", "type": "number", "required": true, "min": 0.5, "max": 100.0}
+      ]
+    },
+    {
+      "action_type": "clock_staff_in",
+      "effect": "clock_staff_in",
+      "effect_event_type": "staff_clocked_in",
+      "params": [
+        {"name": "staff_id", "type": "string", "required": true}
+      ]
+    },
+    {
+      "action_type": "clock_staff_out",
+      "effect": "clock_staff_out",
+      "effect_event_type": "staff_clocked_out",
+      "params": [
+        {"name": "staff_id", "type": "string", "required": true}
+      ]
+    }
   ]
 }

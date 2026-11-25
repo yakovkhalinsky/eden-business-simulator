@@ -121,6 +121,22 @@ stream-based KPI can be recomputed from the raw events between the
 summary's `sequence_start` and `sequence_end`. Disable them with
 `--no-period-summaries` on the `run` and `daemon` commands.
 
+## Actions (Phase 3, cafe pilot)
+
+Simulators can be *managed*, not just observed. The cafe accepts
+four actions — `place_supplier_order`, `adjust_price` (requires an
+`approved_by` stamp on the request), `clock_staff_in` and
+`clock_staff_out` — declared in its business definition. Programmatic
+callers submit `ActionRequest`s through a runner: scripted
+`actions=[(sequence, request)]` for deterministic runs, or
+`ContinuousRunner.submit_action(request)` from another thread.
+Each applied action appears in the stream as its domain effect
+event followed by an `action_applied` audit event; rejections
+(invalid parameters, unknown entities, missing approval, duplicate
+`action_id`) appear as `action_rejected` with a reason and change
+nothing. See `docs/architecture.md` ("Action channel") for the full
+contract.
+
 ## Replay stored events
 
 `replay` reads a persisted stream and re-emits the events at original or scaled timing.

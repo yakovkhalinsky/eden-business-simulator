@@ -205,6 +205,45 @@ summary payload carries `period_start`/`period_end` (exclusive),
 version/hash, so an external verifier can recompute every
 stream-based KPI from the raw events in that sequence range.
 
+### Action channel (Phase 3, cafe pilot)
+
+Simulators accept management actions through `apply_action(request,
+clock)` on the base class. The action *contract* is config: each
+business definition declares an `actions` list (`action_type`, the
+`effect` handler name, `effect_event_type`, `requires_approval`, and
+a parameter schema with types, required flags, `min`/`max` limits and
+`enum`s). The shared pipeline rejects, in order: unknown actions,
+duplicate `action_id`s (idempotency — a second application returns
+`already_applied` with no effect), actions flagged
+`requires_approval` whose request carries no `approved_by` stamp
+(Eden records approval, it does not grant it), and invalid parameters
+(reasons name the offending parameter). Only then does it dispatch to
+the simulator's `_apply_<action_type>` handler, which must validate
+before mutating and consume no RNG on a rejection path — so a
+rejected action leaves state and the deterministic stream untouched,
+and only a successful effect records the `action_id`.
+
+Runners apply actions *between ticks* (at a defined sequence point):
+both runners accept scripted `actions=[(sequence, ActionRequest)]`
+for deterministic runs, and `ContinuousRunner` also exposes a
+thread-safe `submit_action()` queue drained in FIFO order before the
+next business event. For each action the runner emits the domain
+effect event(s) first, then an audit event — `action_applied`
+(naming the effect event types) or `action_rejected` (with the
+reason; duplicates are audited here too, with status
+`already_applied`). Action events get normal sequences and are
+persisted/output like any event, but do not count toward
+`max_events`. Effect events whose type is a catalogued business
+event type are observed by the KPI tracker (an action's supplier
+delivery really happened); audit events and new action-only effect
+types (e.g. cafe's `menu_price_adjusted`) are not. Effect event
+types need not appear in `available_event_types()`, which lists only
+catalogue-emitted types.
+
+Phase 3 ships the cafe pilot: `place_supplier_order`,
+`adjust_price` (approval-gated), `clock_staff_in`, `clock_staff_out`.
+The other eight businesses declare no actions yet (Phase 4).
+
 Simulators must never rely on global random state. They should create local `random.Random` and `faker.Faker` instances seeded from `initialize(seed)`.
 
 ## Framework helpers

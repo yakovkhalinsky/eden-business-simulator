@@ -1,8 +1,9 @@
 """Versioned, configuration-driven business definitions (Phase 0).
 
 A ``BusinessDefinition`` is the declarative part of a simulator: event
-catalogue (weights + guard *names*), dayparts, domain data, and the declared
-initial-state keys/defaults. Guard and emitter logic stays in code; a
+catalogue (weights + guard *names*), dayparts, domain data, the declared
+initial-state keys/defaults, KPI definitions (Phase 2), and action
+contracts (Phase 3). Guard and emitter logic stays in code; a
 definition only refers to guards by name, and ``build_weighted_catalog``
 resolves those names against the guard callables a simulator supplies --
 an unknown name is a hard failure, never a silent skip.
@@ -106,6 +107,60 @@ class KpiDef(BaseModel):
         return self
 
 
+ACTION_PARAM_TYPES = {"string", "number", "integer", "boolean"}
+
+
+class ActionParamDef(BaseModel):
+    """One declared parameter of an action (Phase 3).
+
+    ``min``/``max`` are the v1 limit mechanism: they apply to numeric
+    parameter types and are enforced by the shared ``apply_action``
+    pipeline before any effect handler runs.
+    """
+
+    name: str
+    type: Literal["string", "number", "integer", "boolean"]
+    required: bool = False
+    min: float | None = None
+    max: float | None = None
+    enum: list[Any] | None = None
+
+    @model_validator(mode="after")
+    def limits_must_be_ordered(self) -> "ActionParamDef":
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError(
+                f"action param {self.name!r} has min > max ({self.min} > {self.max})"
+            )
+        return self
+
+
+class ActionDef(BaseModel):
+    """One management action a simulator accepts (Phase 3).
+
+    The definition declares the contract — parameter schema, limits, and
+    whether Beth-side approval must be stamped on the request (D9) — while
+    the *effect* stays in code: ``effect`` names the handler a simulator
+    resolves (by convention its ``_apply_<action_type>`` method), and
+    ``effect_event_type`` is the domain event a successful application
+    emits into the stream.
+    """
+
+    action_type: str
+    effect: str
+    effect_event_type: str
+    requires_approval: bool = False
+    params: list[ActionParamDef] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def params_must_be_unique(self) -> "ActionDef":
+        names = [p.name for p in self.params]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                f"duplicate param name in action {self.action_type!r}"
+            )
+        return self
+
+
 class InitialStateDef(BaseModel):
     defaults: dict[str, Any] = Field(default_factory=dict)
     types: dict[str, str] = Field(default_factory=dict)
@@ -126,6 +181,7 @@ class BusinessDefinition(BaseModel):
     version: str = "1.0"
     events: list[EventDef]
     kpis: list[KpiDef] = Field(default_factory=list)
+    actions: list[ActionDef] = Field(default_factory=list)
     dayparts: list[DaypartDef] = Field(default_factory=list)
     domain: dict[str, Any] = Field(default_factory=dict)
     initial_state: InitialStateDef = Field(default_factory=InitialStateDef)
@@ -144,6 +200,9 @@ class BusinessDefinition(BaseModel):
                 raise ValueError(
                     f"daypart {daypart.name!r} modifies unknown events: {sorted(unknown)}"
                 )
+        action_names = [a.action_type for a in self.actions]
+        if len(action_names) != len(set(action_names)):
+            raise ValueError("duplicate action_type in definition")
         kpi_names = [k.name for k in self.kpis]
         if len(kpi_names) != len(set(kpi_names)):
             raise ValueError("duplicate KPI name in definition")

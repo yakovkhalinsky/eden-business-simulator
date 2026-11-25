@@ -109,6 +109,19 @@ class StaffRoster:
                 return staff
         return None
 
+    def clock_out(self, staff_id: str) -> dict[str, Any] | None:
+        for staff in self._staff:
+            if staff["staff_id"] == staff_id:
+                staff["clocked_in"] = False
+                return staff
+        return None
+
+    def get(self, staff_id: str) -> dict[str, Any] | None:
+        for staff in self._staff:
+            if staff["staff_id"] == staff_id:
+                return staff
+        return None
+
     def sample(self, *, clocked_in: bool | None = None) -> dict[str, Any]:
         pool = self._staff
         if clocked_in is not None:

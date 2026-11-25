@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import queue
 import signal
 import threading
 import time
 from typing import Any
 
-from eden_business_simulator.businesses.base import BusinessSimulator
+from eden_business_simulator.businesses.base import (
+    ActionRequest,
+    BusinessSimulator,
+    action_audit_event,
+)
 from eden_business_simulator.config import SimulatorConfig
 from eden_business_simulator.framework.kpi import PeriodTracker, tracker_for
 from eden_business_simulator.models import Clock, EventEnvelope
@@ -35,6 +40,7 @@ class ContinuousRunner:
         storage: StorageAdapter,
         output: OutputAdapter | None = None,
         realtime: bool = True,
+        actions: list[tuple[int, ActionRequest]] | None = None,
     ) -> None:
         self.config = config
         self.simulator = simulator
@@ -51,6 +57,74 @@ class ContinuousRunner:
         self._original_sigterm: Any = None
         self._original_sigint: Any = None
         self._tracker: PeriodTracker | None = tracker_for(config, simulator)
+        # Phase 3 actions: scripted (sequence, request) pairs for
+        # deterministic runs, plus a thread-safe live queue fed by
+        # submit_action(). Both drain between ticks (D6).
+        self._scripted_actions: list[tuple[int, ActionRequest]] = list(
+            actions or []
+        )
+        self._action_queue: queue.Queue[ActionRequest] = queue.Queue()
+
+    def submit_action(self, request: ActionRequest) -> None:
+        """Queue an action from any thread; applied before the next
+        business event the runner generates, in FIFO order."""
+        self._action_queue.put(request)
+
+    def _emit_action_event(
+        self, event: dict[str, Any], *, observe: bool
+    ) -> None:
+        envelope = EventEnvelope.from_event(
+            business_type=self.config.business_type,
+            event_type=event["event_type"],
+            payload=event.get("payload", {}),
+            timestamp=self.clock.now,
+            stream_id=self.config.stream_id,
+            sequence=self._next_sequence,
+        )
+        self.storage.append(envelope)
+        if self.output is not None:
+            self.output.write(envelope)
+        if observe and self._tracker is not None:
+            self._tracker.observe(
+                event["event_type"],
+                event.get("payload", {}),
+                sequence=envelope.sequence,
+                timestamp=self.clock.now,
+            )
+        self._next_sequence += 1
+
+    def _process_action(self, request: ActionRequest) -> None:
+        """Apply one action; emit effect event(s), then the audit event.
+
+        Action events get normal sequences and are persisted/output
+        like any event, but never count toward ``max_events``. Only
+        effect events whose type is a catalogued business event type
+        are observed by the KPI tracker (see Runner for the same rule).
+        """
+        result = self.simulator.apply_action(request, self.clock)
+        catalogued = set(self.simulator.available_event_types())
+        for event in result.events:
+            self._emit_action_event(
+                event, observe=event["event_type"] in catalogued
+            )
+        self._emit_action_event(
+            action_audit_event(request, result), observe=False
+        )
+
+    def _drain_actions(self) -> None:
+        upcoming = self._next_sequence
+        due = [item for item in self._scripted_actions if item[0] <= upcoming]
+        self._scripted_actions = [
+            item for item in self._scripted_actions if item[0] > upcoming
+        ]
+        for _, request in due:
+            self._process_action(request)
+        while True:
+            try:
+                request = self._action_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._process_action(request)
 
     def _emit_period_summary(self, payload: dict) -> None:
         """Persist/emit a period_summary event (Phase 2).
@@ -185,6 +259,9 @@ class ContinuousRunner:
                     closed = self._tracker.close_if_crossed(self.clock.now)
                     if closed is not None:
                         self._emit_period_summary(closed)
+                # Phase 3: actions land between ticks, after any period
+                # close and before the next business event.
+                self._drain_actions()
                 event = self.simulator.next_event(self.clock)
                 envelope = EventEnvelope.from_event(
                     business_type=self.config.business_type,

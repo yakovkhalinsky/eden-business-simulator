@@ -8,6 +8,7 @@ from typing import Any
 from faker import Faker
 
 from eden_business_simulator.businesses.base import (
+    ActionRejected,
     BusinessSimulator,
     DEFAULT_TAX_TYPE,
     compute_tax,
@@ -215,6 +216,7 @@ class CafeSimulator(BusinessSimulator):
 
         self.orders = []
         self.tickets = []
+        self._applied_ids = set()
         self._shift_opened = False
         self._shift_closed = False
         self._register_id = self.id_gen.next("reg")
@@ -304,6 +306,103 @@ class CafeSimulator(BusinessSimulator):
                 ),
                 "tables_total": len(self.tables),
                 "waste_total": self.ledger.waste_total() if self.ledger else 0.0,
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Action handlers (Phase 3 pilot). Each validates before mutating
+    # and consumes no RNG, so a rejection leaves state and stream
+    # untouched. Successful handlers return the domain effect event.
+    # ------------------------------------------------------------------
+
+    def _apply_place_supplier_order(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        ingredient_id = params["ingredient_id"]
+        ingredient = next(
+            (row for row in self._INGREDIENTS if row[0] == ingredient_id), None
+        )
+        if ingredient is None or self.ledger is None:
+            raise ActionRejected(f"unknown_ingredient:{ingredient_id}")
+        _, name, unit, unit_cost = ingredient
+        qty = float(params["qty"])
+        self.ledger.receive(ingredient_id, qty, unit_cost)
+        return {
+            "event_type": "supplier_delivery_received",
+            "payload": {
+                "delivery_id": self.id_gen.next("del"),
+                "supplier_id": self._SUPPLIER,
+                "items": [
+                    {
+                        "ingredient_id": ingredient_id,
+                        "name": name,
+                        "qty": qty,
+                        "unit": unit,
+                        "unit_cost": unit_cost,
+                    }
+                ],
+                "received_at": clock.now.isoformat(),
+                "po_reference": self.id_gen.next("po"),
+            },
+        }
+
+    def _apply_adjust_price(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        item_id = params["item_id"]
+        item = next(
+            (i for i in self.menu.all() if i["item_id"] == item_id), None
+        )
+        if item is None:
+            raise ActionRejected(f"unknown_item:{item_id}")
+        old_price = item["price"]
+        new_price = round(float(params["new_price"]), 2)
+        item["price"] = new_price
+        return {
+            "event_type": "menu_price_adjusted",
+            "payload": {
+                "item_id": item_id,
+                "old_price": old_price,
+                "new_price": new_price,
+                "adjusted_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_clock_staff_in(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        staff_id = params["staff_id"]
+        staff = self.staff.get(staff_id)
+        if staff is None:
+            raise ActionRejected(f"unknown_staff:{staff_id}")
+        if staff["clocked_in"]:
+            raise ActionRejected(f"staff_already_clocked_in:{staff_id}")
+        self.staff.clock_in(staff_id)
+        return {
+            "event_type": "staff_clocked_in",
+            "payload": {
+                "staff_id": staff["staff_id"],
+                "role": staff["role"],
+                "clocked_in_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_clock_staff_out(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        staff_id = params["staff_id"]
+        staff = self.staff.get(staff_id)
+        if staff is None:
+            raise ActionRejected(f"unknown_staff:{staff_id}")
+        if not staff["clocked_in"]:
+            raise ActionRejected(f"staff_not_clocked_in:{staff_id}")
+        self.staff.clock_out(staff_id)
+        return {
+            "event_type": "staff_clocked_out",
+            "payload": {
+                "staff_id": staff["staff_id"],
+                "role": staff["role"],
+                "clocked_out_at": clock.now.isoformat(),
             },
         }
 
