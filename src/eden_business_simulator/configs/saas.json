@@ -106,5 +106,43 @@
     "types": {
       "initial_accounts": "int"
     }
-  }
+  },
+  "kpis": [
+    {
+      "name": "new_accounts",
+      "kind": "count",
+      "event_type": "account_signed_up"
+    },
+    {
+      "name": "churned",
+      "kind": "count",
+      "event_type": "churned"
+    },
+    {
+      "name": "invoices_paid",
+      "kind": "count",
+      "event_type": "payment_succeeded"
+    },
+    {
+      "name": "invoices_failed",
+      "kind": "count",
+      "event_type": "payment_failed"
+    },
+    {
+      "name": "revenue",
+      "kind": "sum",
+      "event_type": "payment_succeeded",
+      "field": "amount"
+    },
+    {
+      "name": "mrr_end",
+      "kind": "snapshot",
+      "field": "position.mrr"
+    },
+    {
+      "name": "tickets_opened",
+      "kind": "count",
+      "event_type": "support_ticket_opened"
+    }
+  ]
 }

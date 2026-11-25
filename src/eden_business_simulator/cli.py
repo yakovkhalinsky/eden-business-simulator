@@ -67,6 +67,11 @@ def run(
         "--realtime/--no-realtime",
         help="Pace emission to real time (default) or emit as fast as possible.",
     ),
+    period_summaries: bool = typer.Option(
+        True,
+        "--period-summaries/--no-period-summaries",
+        help="Emit period_summary KPI events at simulated day boundaries.",
+    ),
 ) -> None:
     """Run a business simulator and stream events."""
     config = SimulatorConfig(
@@ -77,6 +82,7 @@ def run(
         seed=seed,
         output_mode=output,  # type: ignore[arg-type]
         webhook_url=webhook_url,
+        period_summaries_enabled=period_summaries,
     )
 
     simulator = load_simulator(config.business_type)
@@ -131,6 +137,11 @@ def daemon(
         "--position-snapshot-every-events",
         help="Emit a state_snapshot_recorded position event every N events (0 = off).",
     ),
+    period_summaries: bool = typer.Option(
+        True,
+        "--period-summaries/--no-period-summaries",
+        help="Emit period_summary KPI events at simulated day boundaries.",
+    ),
     realtime: bool = typer.Option(
         True,
         "--realtime/--no-realtime",
@@ -159,6 +170,7 @@ def daemon(
         checkpoint_interval_seconds=checkpoint_interval,
         checkpoint_interval_events=checkpoint_events,
         position_snapshot_every_events=position_snapshot_every_events,
+        period_summaries_enabled=period_summaries,
     )
 
     simulator = load_simulator(config.business_type)

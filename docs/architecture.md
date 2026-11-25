@@ -177,6 +177,34 @@ snapshot/checkpoint/restore path is untouched), readable via the
 default) makes both runners emit a `state_snapshot_recorded` event
 whose payload is the position envelope every N business events.
 
+### Period summaries (Phase 2, KPI events)
+
+When a business definition declares `kpis`, both runners feed every
+business event to a `PeriodTracker` (`framework/kpi.py`) and emit a
+`period_summary` event at each simulated calendar-day boundary (the
+summary is emitted *before* the first event of the new day, so
+snapshot KPIs read the position exactly as the closed period ended),
+plus a final `"partial": true` summary at run end for the last open
+period if it contains at least one business event. Closed periods
+carry `"partial": false`. Like snapshot events, summaries get a
+normal sequence but do not count toward `max_events`.
+`SimulatorConfig.period_summaries_enabled` (default true) turns this
+off; simulators without KPI definitions are unaffected. Cafe's
+`shift_closed` event is unchanged.
+
+KPI definitions are config (the `kpis` list in each business's JSON
+definition) over a small vocabulary: `count`, `count_where`,
+`sum`, `sum_where` (stream aggregations over a payload field,
+optionally filtered on one field), `ratio` (two sibling KPIs;
+divide-by-zero yields 0.0), `snapshot` (a dotted field of
+`position_snapshot()` at period close), and `computed` (a named
+handler registered in `framework/kpi.py` — the escape hatch). The
+summary payload carries `period_start`/`period_end` (exclusive),
+`sequence_start`/`sequence_end` of the period's business events,
+`event_counts`, the computed `kpis`, and the definition
+version/hash, so an external verifier can recompute every
+stream-based KPI from the raw events in that sequence range.
+
 Simulators must never rely on global random state. They should create local `random.Random` and `faker.Faker` instances seeded from `initialize(seed)`.
 
 ## Framework helpers

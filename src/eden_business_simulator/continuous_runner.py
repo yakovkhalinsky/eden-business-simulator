@@ -9,6 +9,7 @@ from typing import Any
 
 from eden_business_simulator.businesses.base import BusinessSimulator
 from eden_business_simulator.config import SimulatorConfig
+from eden_business_simulator.framework.kpi import PeriodTracker, tracker_for
 from eden_business_simulator.models import Clock, EventEnvelope
 from eden_business_simulator.output.base import OutputAdapter
 from eden_business_simulator.storage.base import StorageAdapter
@@ -49,6 +50,26 @@ class ContinuousRunner:
         self._wall_start: float | None = None
         self._original_sigterm: Any = None
         self._original_sigint: Any = None
+        self._tracker: PeriodTracker | None = tracker_for(config, simulator)
+
+    def _emit_period_summary(self, payload: dict) -> None:
+        """Persist/emit a period_summary event (Phase 2).
+
+        Gets a normal sequence but does not count toward max_events,
+        following the Phase 1 snapshot-event pattern.
+        """
+        envelope = EventEnvelope.from_event(
+            business_type=self.config.business_type,
+            event_type="period_summary",
+            payload=payload,
+            timestamp=self.clock.now,
+            stream_id=self.config.stream_id,
+            sequence=self._next_sequence,
+        )
+        self.storage.append(envelope)
+        if self.output is not None:
+            self.output.write(envelope)
+        self._next_sequence += 1
 
     def _request_shutdown(self, signum: int, frame: Any) -> None:
         self._shutdown_event.set()
@@ -158,6 +179,12 @@ class ContinuousRunner:
                     and self.clock.elapsed_seconds() >= self.config.duration_seconds
                 ):
                     break
+                # Phase 2: close the previous simulated day before the
+                # first event of a new day is generated.
+                if self._tracker is not None:
+                    closed = self._tracker.close_if_crossed(self.clock.now)
+                    if closed is not None:
+                        self._emit_period_summary(closed)
                 event = self.simulator.next_event(self.clock)
                 envelope = EventEnvelope.from_event(
                     business_type=self.config.business_type,
@@ -171,6 +198,13 @@ class ContinuousRunner:
                 if self.output is not None:
                     self.output.write(envelope)
 
+                if self._tracker is not None:
+                    self._tracker.observe(
+                        event["event_type"],
+                        event.get("payload", {}),
+                        sequence=envelope.sequence,
+                        timestamp=self.clock.now,
+                    )
                 self._events_emitted += 1
                 self._next_sequence += 1
 
@@ -187,6 +221,12 @@ class ContinuousRunner:
                 self._pace()
         finally:
             if self._events_emitted > 0:
+                # Final partial period summary, before the checkpoint so
+                # the checkpoint sequence covers it.
+                if self._tracker is not None:
+                    final = self._tracker.close_final()
+                    if final is not None:
+                        self._emit_period_summary(final)
                 self._write_checkpoint()
             self._restore_signal_handlers()
             if self.output is not None:

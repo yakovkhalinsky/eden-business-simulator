@@ -185,6 +185,7 @@ def test_daemon_and_replay(tmp_path):
         [
             "daemon",
             "gym",
+            "--no-period-summaries",
             "--storage",
             "sqlite",
             "--storage-uri",
@@ -252,6 +253,7 @@ def test_replay_sqlite_from_sequence(tmp_path):
         [
             "daemon",
             "gym",
+            "--no-period-summaries",
             "--storage",
             "sqlite",
             "--storage-uri",
@@ -301,6 +303,7 @@ def test_replay_ndjson_from_sequence(tmp_path):
         [
             "daemon",
             "gym",
+            "--no-period-summaries",
             "--storage",
             "ndjson",
             "--storage-uri",
@@ -350,6 +353,7 @@ def test_replay_speed_pacing(tmp_path, monkeypatch):
         [
             "daemon",
             "gym",
+            "--no-period-summaries",
             "--storage",
             "sqlite",
             "--storage-uri",
@@ -400,6 +404,7 @@ def test_status_shows_per_stream_checkpoint(tmp_path):
         [
             "daemon",
             "gym",
+            "--no-period-summaries",
             "--storage",
             "sqlite",
             "--storage-uri",

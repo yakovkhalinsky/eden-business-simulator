@@ -30,6 +30,11 @@ class SimulatorConfig(BaseModel):
     # position snapshot every N events. 0 = off (default, per D3).
     position_snapshot_every_events: int = 0
 
+    # Phase 2: emit `period_summary` KPI events at simulated calendar-day
+    # boundaries (plus a final partial summary at run end). Only applies
+    # when the business definition declares KPIs.
+    period_summaries_enabled: bool = True
+
     @field_validator("position_snapshot_every_events")
     @classmethod
     def position_snapshot_every_events_must_be_non_negative(

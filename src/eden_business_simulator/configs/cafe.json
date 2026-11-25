@@ -366,5 +366,40 @@
       "opening_float": "float",
       "initial_members": "int"
     }
-  }
+  },
+  "kpis": [
+    {
+      "name": "revenue",
+      "kind": "sum",
+      "event_type": "order_paid",
+      "field": "total"
+    },
+    {
+      "name": "orders",
+      "kind": "count",
+      "event_type": "order_paid"
+    },
+    {
+      "name": "orders_taken",
+      "kind": "count",
+      "event_type": "order_taken"
+    },
+    {
+      "name": "avg_order_value",
+      "kind": "ratio",
+      "numerator": "revenue",
+      "denominator": "orders"
+    },
+    {
+      "name": "waste_cost",
+      "kind": "sum",
+      "event_type": "wastage_logged",
+      "field": "estimated_cost"
+    },
+    {
+      "name": "stock_counts",
+      "kind": "count",
+      "event_type": "stock_count_recorded"
+    }
+  ]
 }

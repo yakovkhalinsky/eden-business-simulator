@@ -150,5 +150,46 @@
       "initial_providers": "int",
       "initial_patients": "int"
     }
-  }
+  },
+  "kpis": [
+    {
+      "name": "revenue",
+      "kind": "sum",
+      "event_type": "payment_posted",
+      "field": "amount"
+    },
+    {
+      "name": "appointments",
+      "kind": "count",
+      "event_type": "appointment_scheduled"
+    },
+    {
+      "name": "no_shows",
+      "kind": "count",
+      "event_type": "no_show_recorded"
+    },
+    {
+      "name": "no_show_rate",
+      "kind": "ratio",
+      "numerator": "no_shows",
+      "denominator": "appointments"
+    },
+    {
+      "name": "cancellations",
+      "kind": "count",
+      "event_type": "appointment_cancelled"
+    },
+    {
+      "name": "claims_submitted",
+      "kind": "count",
+      "event_type": "claim_submitted"
+    },
+    {
+      "name": "claims_denied",
+      "kind": "count_where",
+      "event_type": "claim_adjudicated",
+      "filter_field": "status",
+      "filter_value": "denied"
+    }
+  ]
 }

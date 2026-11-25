@@ -164,6 +164,8 @@ def _continuous(business_type, storage, stream_id, max_events, every=0):
         checkpoint_interval_events=5,
         checkpoint_interval_seconds=3600.0,
         position_snapshot_every_events=every,
+        # Phase 2: this helper isolates Phase 1 snapshot behaviour.
+        period_summaries_enabled=False,
     )
     sim = load_simulator(business_type)
     sim.configure(config)

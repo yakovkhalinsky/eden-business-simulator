@@ -224,5 +224,38 @@
       "initial_members": "int",
       "initial_classes": "int"
     }
-  }
+  },
+  "kpis": [
+    {
+      "name": "new_members",
+      "kind": "count",
+      "event_type": "membership_enrolled"
+    },
+    {
+      "name": "cancellations",
+      "kind": "count",
+      "event_type": "membership_cancelled"
+    },
+    {
+      "name": "frozen",
+      "kind": "count",
+      "event_type": "membership_frozen"
+    },
+    {
+      "name": "check_ins",
+      "kind": "count",
+      "event_type": "check_in_recorded"
+    },
+    {
+      "name": "failed_payments",
+      "kind": "count",
+      "event_type": "payment_failed"
+    },
+    {
+      "name": "retail_revenue",
+      "kind": "sum",
+      "event_type": "retail_purchase_made",
+      "field": "total"
+    }
+  ]
 }

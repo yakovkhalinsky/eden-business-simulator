@@ -83,5 +83,36 @@
       "initial_customers": "int",
       "initial_products": "int"
     }
-  }
+  },
+  "kpis": [
+    {
+      "name": "revenue",
+      "kind": "sum_where",
+      "event_type": "payment_processed",
+      "field": "amount",
+      "filter_field": "status",
+      "filter_value": "approved"
+    },
+    {
+      "name": "orders",
+      "kind": "count",
+      "event_type": "order_placed"
+    },
+    {
+      "name": "refunds",
+      "kind": "sum",
+      "event_type": "refund_issued",
+      "field": "amount"
+    },
+    {
+      "name": "refund_count",
+      "kind": "count",
+      "event_type": "refund_issued"
+    },
+    {
+      "name": "views",
+      "kind": "count",
+      "event_type": "product_viewed"
+    }
+  ]
 }

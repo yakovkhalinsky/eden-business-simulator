@@ -136,5 +136,35 @@
       "initial_vehicles": "int",
       "initial_customers": "int"
     }
-  }
+  },
+  "kpis": [
+    {
+      "name": "revenue",
+      "kind": "sum",
+      "event_type": "payment_received",
+      "field": "amount"
+    },
+    {
+      "name": "jobs_completed",
+      "kind": "count",
+      "event_type": "work_completed"
+    },
+    {
+      "name": "invoices",
+      "kind": "count",
+      "event_type": "invoice_generated"
+    },
+    {
+      "name": "avg_job_value",
+      "kind": "ratio",
+      "numerator": "revenue",
+      "denominator": "jobs_completed"
+    },
+    {
+      "name": "parts_cost",
+      "kind": "sum",
+      "event_type": "parts_used",
+      "field": "unit_cost"
+    }
+  ]
 }

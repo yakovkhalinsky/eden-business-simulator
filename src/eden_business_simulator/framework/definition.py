@@ -58,6 +58,54 @@ class DaypartDef(BaseModel):
     default_modifier: float = 1.0
 
 
+KPI_KINDS = {
+    "count", "count_where", "sum", "sum_where", "ratio", "snapshot", "computed",
+}
+
+
+class KpiDef(BaseModel):
+    """One period-summary KPI, declared in config (Phase 2).
+
+    The vocabulary is deliberately small: ``count`` / ``count_where`` count
+    events (optionally filtered on one payload field), ``sum`` / ``sum_where``
+    total a numeric payload field, ``ratio`` divides two other KPIs in the
+    same definition (divide-by-zero yields 0.0), ``snapshot`` reads a dotted
+    field from the position snapshot at period close, and ``computed`` is the
+    escape hatch naming a handler registered in ``framework.kpi``.
+    """
+
+    name: str
+    kind: Literal[
+        "count", "count_where", "sum", "sum_where", "ratio", "snapshot",
+        "computed",
+    ]
+    event_type: str | None = None
+    field: str | None = None
+    filter_field: str | None = None
+    filter_value: Any = None
+    numerator: str | None = None
+    denominator: str | None = None
+    handler: str | None = None
+
+    @model_validator(mode="after")
+    def required_fields_per_kind(self) -> "KpiDef":
+        needs = {
+            "count": ("event_type",),
+            "count_where": ("event_type", "filter_field"),
+            "sum": ("event_type", "field"),
+            "sum_where": ("event_type", "field", "filter_field"),
+            "ratio": ("numerator", "denominator"),
+            "snapshot": ("field",),
+            "computed": ("handler",),
+        }[self.kind]
+        missing = [f for f in needs if getattr(self, f) is None]
+        if missing:
+            raise ValueError(
+                f"KPI {self.name!r} ({self.kind}) missing fields: {missing}"
+            )
+        return self
+
+
 class InitialStateDef(BaseModel):
     defaults: dict[str, Any] = Field(default_factory=dict)
     types: dict[str, str] = Field(default_factory=dict)
@@ -77,6 +125,7 @@ class BusinessDefinition(BaseModel):
     business_type: str
     version: str = "1.0"
     events: list[EventDef]
+    kpis: list[KpiDef] = Field(default_factory=list)
     dayparts: list[DaypartDef] = Field(default_factory=list)
     domain: dict[str, Any] = Field(default_factory=dict)
     initial_state: InitialStateDef = Field(default_factory=InitialStateDef)
@@ -95,6 +144,46 @@ class BusinessDefinition(BaseModel):
                 raise ValueError(
                     f"daypart {daypart.name!r} modifies unknown events: {sorted(unknown)}"
                 )
+        kpi_names = [k.name for k in self.kpis]
+        if len(kpi_names) != len(set(kpi_names)):
+            raise ValueError("duplicate KPI name in definition")
+        kpi_set = set(kpi_names)
+        for kpi in self.kpis:
+            if kpi.event_type is not None and kpi.event_type not in known:
+                raise ValueError(
+                    f"KPI {kpi.name!r} references unknown event "
+                    f"{kpi.event_type!r}"
+                )
+            if kpi.kind == "ratio":
+                for ref in (kpi.numerator, kpi.denominator):
+                    if ref not in kpi_set:
+                        raise ValueError(
+                            f"KPI {kpi.name!r} ratio references unknown "
+                            f"KPI {ref!r}"
+                        )
+                    if ref == kpi.name:
+                        raise ValueError(
+                            f"KPI {kpi.name!r} ratio references itself"
+                        )
+        # Ratio references must be acyclic (A -> B -> A would never resolve).
+        refs = {
+            k.name: {k.numerator, k.denominator}
+            for k in self.kpis
+            if k.kind == "ratio"
+        }
+        visiting: set[str] = set()
+
+        def visit(node: str) -> None:
+            if node in visiting:
+                raise ValueError(f"cyclic ratio KPI references at {node!r}")
+            visiting.add(node)
+            for nxt in refs.get(node, set()):
+                if nxt in refs:
+                    visit(nxt)
+            visiting.discard(node)
+
+        for node in refs:
+            visit(node)
         return self
 
     def event_types(self) -> list[str]:

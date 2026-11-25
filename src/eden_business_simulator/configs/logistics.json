@@ -173,5 +173,46 @@
       "initial_vehicles": "int",
       "initial_shipments": "int"
     }
-  }
+  },
+  "kpis": [
+    {
+      "name": "deliveries",
+      "kind": "count",
+      "event_type": "delivery_delivered"
+    },
+    {
+      "name": "attempts",
+      "kind": "count",
+      "event_type": "delivery_attempted"
+    },
+    {
+      "name": "delivered_attempts",
+      "kind": "count_where",
+      "event_type": "delivery_attempted",
+      "filter_field": "outcome",
+      "filter_value": "delivered"
+    },
+    {
+      "name": "success_rate",
+      "kind": "ratio",
+      "numerator": "delivered_attempts",
+      "denominator": "attempts"
+    },
+    {
+      "name": "exceptions",
+      "kind": "count",
+      "event_type": "delivery_exception_recorded"
+    },
+    {
+      "name": "returns",
+      "kind": "count",
+      "event_type": "return_initiated"
+    },
+    {
+      "name": "fuel_cost",
+      "kind": "sum",
+      "event_type": "fuel_stop_logged",
+      "field": "cost"
+    }
+  ]
 }

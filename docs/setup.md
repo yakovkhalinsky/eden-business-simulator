@@ -109,6 +109,18 @@ To also embed position snapshots in the stream itself, start the
 daemon with `--position-snapshot-every-events N` (default 0 = off):
 a `state_snapshot_recorded` event is then emitted every N events.
 
+## Period KPI summaries
+
+Runs also emit `period_summary` events: one per simulated calendar
+day (revenue, order counts, rates — the KPIs declared in each
+business's definition), closed at each simulated midnight, plus a
+final `"partial": true` summary for the last open period at run end.
+They appear in the NDJSON stream / persisted storage alongside
+business events and can be used to grade a run objectively: every
+stream-based KPI can be recomputed from the raw events between the
+summary's `sequence_start` and `sequence_end`. Disable them with
+`--no-period-summaries` on the `run` and `daemon` commands.
+
 ## Replay stored events
 
 `replay` reads a persisted stream and re-emits the events at original or scaled timing.
