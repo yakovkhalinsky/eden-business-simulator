@@ -2,10 +2,8 @@
 
 ## Phase 8 addendum — the improvements programme (Phases 0–8)
 
-This addendum summarises the programme that turned Eden from an
-emit-only event generator into the trial world for Beth/Aleph-managed
-businesses: Eden plays the business, Aleph agents manage it, Beth is
-the ops/approval layer. Each phase landed with its test suite green
+This addendum summarises the programme that turned the Eden business simulator from an emit-only event generator into the trial world for Beth/Aleph-managed
+businesses: the Eden business simulator plays the business, Aleph agents manage it, Beth is the ops/approval layer. Each phase landed with its test suite green
 and is described in detail in the phase notes across `docs/`
 (architecture, daemon, scenarios, setup).
 
@@ -38,8 +36,7 @@ and is described in detail in the phase notes across `docs/`
   discounts are flagged `requires_approval`.
 - **Phase 5 — Daemon command input.** A commands table on all three
   storage backends; the daemon polls it between ticks and resolves
-  each record applied/rejected with the reason. Beth owns approval;
-  Eden only checks the `approved_by` stamp. Applied action ids persist
+  each record applied/rejected with the reason. Beth owns approval; the Eden business simulator only checks the `approved_by` stamp. Applied action ids persist
   in storage, so idempotency survives a daemon restart. See
   `docs/daemon.md` for the contract.
 - **Phase 6 — Scenario packs.** Five config-driven disruption packs
@@ -192,5 +189,4 @@ and position must equal an uninterrupted run's exactly.
   contain bracketed `[::1]` `no_proxy` entries break this httpx
   version's default client construction, so `--output http` fails in
   such an environment (observed in the development VM; not on the
-  deployment host). Eden does not override the process proxy
-  environment.
+  deployment host). The Eden business simulator does not override the process proxy environment.

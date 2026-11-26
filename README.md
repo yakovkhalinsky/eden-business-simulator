@@ -69,7 +69,7 @@ The daemon writes periodic checkpoints and a final checkpoint on shutdown so it 
 
 ## Run the Beth/Aleph trial
 
-Eden is the trial world for agent-managed businesses: Eden plays the business, agents manage it, and the operator layer reads position, submits commands, and verifies the run afterwards. The steps, in order:
+The Eden business simulator is the trial world for agent-managed businesses: the Eden business simulator plays the business, agents manage it, and the operator layer reads position, submits commands, and verifies the run afterwards. The steps, in order:
 
 ```bash
 # 1. Start a daemon (the business, running live and persisting)

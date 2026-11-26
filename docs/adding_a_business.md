@@ -1,6 +1,6 @@
 # Adding a new business simulator
 
-This runbook is for contributors who want to add a new domain to the Eden Business Simulator. Before you start, skim the user-facing documentation for an existing domain (for example [`docs/businesses/cafe.md`](businesses/cafe.md)) and the architecture overview ([`docs/architecture.md`](architecture.md)) to understand how the envelope, clock, and helpers work.
+This runbook is for contributors who want to add a new domain to the Eden business simulator. Before you start, skim the user-facing documentation for an existing domain (for example [`docs/businesses/cafe.md`](businesses/cafe.md)) and the architecture overview ([`docs/architecture.md`](architecture.md)) to understand how the envelope, clock, and helpers work.
 
 ## 1. Create the simulator module
 

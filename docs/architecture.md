@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the runtime architecture of the Eden Business Simulator: how configuration becomes an event stream, how events are wrapped and persisted, and how the reusable framework helpers fit together.
+This document describes the runtime architecture of the Eden business simulator: how configuration becomes an event stream, how events are wrapped and persisted, and how the reusable framework helpers fit together.
 
 ## High-level data flow
 
@@ -220,7 +220,7 @@ a parameter schema with types, required flags, `min`/`max` limits and
 duplicate `action_id`s (idempotency — a second application returns
 `already_applied` with no effect), actions flagged
 `requires_approval` whose request carries no `approved_by` stamp
-(Eden records approval, it does not grant it), and invalid parameters
+(the Eden business simulator records approval, it does not grant it), and invalid parameters
 (reasons name the offending parameter). Only then does it dispatch to
 the simulator's `_apply_<action_type>` handler, which must validate
 before mutating and consume no RNG on a rejection path — so a

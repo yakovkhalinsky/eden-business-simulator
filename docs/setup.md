@@ -1,6 +1,6 @@
 # Setup and runbook
 
-This guide covers installing the Eden Business Simulator, generating event streams, and integrating the output into evaluator workflows.
+This guide covers installing the Eden business simulator, generating event streams, and integrating the output into evaluator workflows.
 
 ## Requirements
 

@@ -144,10 +144,10 @@ Add `--status pending|applied|rejected` to filter.
 
 ## The approval rule (D9)
 
-Beth owns approval; Eden only checks the stamp. If an action's
+Beth owns approval; the Eden business simulator only checks the stamp. If an action's
 definition sets `requires_approval`, a command without `approved_by`
 is rejected with reason `requires_approval` and nothing is mutated.
-Eden does not know who *should* approve — recording who did
+The Eden business simulator does not know who *should* approve — recording who did
 (`approved_by`, plus `requested_by` as the audit actor) is the whole
 of its role.
 

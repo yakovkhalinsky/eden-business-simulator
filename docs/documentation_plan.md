@@ -1,6 +1,6 @@
 # Documentation plan
 
-Goal: add comprehensive documentation covering each supported business type in the Eden Business Simulator, including the systems, workflows, and realistic events/data generated. Also improve the how-to guide for setting up and adding new business simulators.
+Goal: add comprehensive documentation covering each supported business type in the Eden business simulator, including the systems, workflows, and realistic events/data generated. Also improve the how-to guide for setting up and adding new business simulators.
 
 ## Proposed documentation tree
 
