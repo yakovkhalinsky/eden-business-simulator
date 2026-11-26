@@ -227,6 +227,18 @@ class BusinessSimulator(ABC):
             self._applied_ids = ids
         return ids
 
+    def seed_applied_action_ids(self, action_ids: Any) -> None:
+        """Merge externally-known applied action ids into this instance.
+
+        Phase 5: the applied-id set is otherwise per-instance and
+        resets on ``initialize()``. A runner that resumes a stored run
+        seeds the set from storage (applied commands + stored
+        ``action_applied`` events) so an action applied by an earlier
+        process is still recognised as a duplicate after a restart.
+        ``apply_action`` semantics are unchanged.
+        """
+        self._applied_action_ids().update(action_ids)
+
     def apply_action(
         self, request: ActionRequest, clock: Clock
     ) -> ActionResult:

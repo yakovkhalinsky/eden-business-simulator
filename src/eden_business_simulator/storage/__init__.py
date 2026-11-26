@@ -24,5 +24,5 @@ def load_storage_adapter(backend: str, uri: str, stream_id: str) -> StorageAdapt
     if backend == "ndjson":
         return NdjsonStorageAdapter(uri, stream_id)
     if backend == "memory":
-        return MemoryStorageAdapter(stream_id)
+        return MemoryStorageAdapter(uri or "memory://", stream_id)
     raise ValueError(f"Unsupported storage backend: {backend}")

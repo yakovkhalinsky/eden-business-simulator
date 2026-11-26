@@ -10,6 +10,7 @@ from typing import Any
 
 from eden_business_simulator.businesses.base import (
     ActionRequest,
+    ActionResult,
     BusinessSimulator,
     action_audit_event,
 )
@@ -41,12 +42,20 @@ class ContinuousRunner:
         output: OutputAdapter | None = None,
         realtime: bool = True,
         actions: list[tuple[int, ActionRequest]] | None = None,
+        command_polling: bool = True,
     ) -> None:
         self.config = config
         self.simulator = simulator
         self.storage = storage
         self.output = output
         self.realtime = realtime
+        # Phase 5: poll the storage command table between ticks and
+        # apply pending commands through the same path as submit_action.
+        # The run id is the stream id; polling is a no-op when the
+        # storage holds no commands, and can be disabled outright for
+        # runners that should never consume external commands.
+        self.command_polling = command_polling
+        self.run_id = config.stream_id or storage.stream_id
         self.clock = Clock(tick_seconds=1.0 / config.events_per_second)
         self._shutdown_event = threading.Event()
         self._events_emitted = 0
@@ -93,7 +102,7 @@ class ContinuousRunner:
             )
         self._next_sequence += 1
 
-    def _process_action(self, request: ActionRequest) -> None:
+    def _process_action(self, request: ActionRequest) -> ActionResult:
         """Apply one action; emit effect event(s), then the audit event.
 
         Action events get normal sequences and are persisted/output
@@ -110,6 +119,76 @@ class ContinuousRunner:
         self._emit_action_event(
             action_audit_event(request, result), observe=False
         )
+        return result
+
+    # ------------------------------------------------------------------
+    # Command polling (Phase 5)
+    # ------------------------------------------------------------------
+
+    def _seed_applied_action_ids(self) -> None:
+        """Seed the simulator's applied-id set from storage so action
+        idempotency survives a daemon restart (Phase 5)."""
+        if not self.command_polling:
+            return
+        try:
+            applied = self.storage.applied_action_ids(self.run_id)
+        except NotImplementedError:
+            return
+        if applied:
+            self.simulator.seed_applied_action_ids(applied)
+
+    def _process_command(self, record: dict[str, Any]) -> None:
+        """Apply one stored command and record its outcome.
+
+        Goes through the exact ``_process_action`` path as scripted and
+        live actions, so effect + audit events land in the stream and
+        outputs as usual. The command record is then resolved:
+        ``applied`` with the effect event types, or ``rejected`` with
+        the pipeline's reason (a duplicate surfaces as
+        ``duplicate_action_id``).
+        """
+        request = ActionRequest(
+            action_id=record["action_id"],
+            action_type=record["action_type"],
+            actor=record.get("requested_by") or "command",
+            params=dict(record.get("params") or {}),
+            approved_by=record.get("approved_by"),
+        )
+        result = self._process_action(request)
+        if result.status == "applied":
+            status = "applied"
+            payload: dict[str, Any] = {
+                "status": result.status,
+                "effect_event_types": [
+                    event["event_type"] for event in result.events
+                ],
+            }
+        else:
+            status = "rejected"
+            payload = {
+                "status": result.status,
+                "reason": result.reason,
+                "effect_event_types": [],
+            }
+        self.storage.record_command_result(
+            record["command_id"],
+            status,
+            payload,
+            resolved_at=self.clock.now.isoformat(),
+            run_id=self.run_id,
+        )
+
+    def _drain_commands(self) -> None:
+        """Apply every pending stored command, in submission order."""
+        if not self.command_polling:
+            return
+        try:
+            pending = self.storage.pending_commands(self.run_id)
+        except NotImplementedError:
+            self.command_polling = False
+            return
+        for record in pending:
+            self._process_command(record)
 
     def _drain_actions(self) -> None:
         upcoming = self._next_sequence
@@ -241,6 +320,7 @@ class ContinuousRunner:
         """Run the continuous loop until shutdown or error."""
         self._install_signal_handlers()
         self._load_resume_state()
+        self._seed_applied_action_ids()
         self._wall_start = time.monotonic()
         self._last_checkpoint_time = self._wall_start
 
@@ -262,6 +342,9 @@ class ContinuousRunner:
                 # Phase 3: actions land between ticks, after any period
                 # close and before the next business event.
                 self._drain_actions()
+                # Phase 5: stored commands land between ticks too (D6),
+                # drained after scripted/live actions each iteration.
+                self._drain_commands()
                 event = self.simulator.next_event(self.clock)
                 envelope = EventEnvelope.from_event(
                     business_type=self.config.business_type,

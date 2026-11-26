@@ -193,6 +193,10 @@ def daemon(
         storage_adapter,
         output=output_adapter,
         realtime=realtime,
+        # Phase 5: a live daemon polls its storage command table
+        # between ticks (run id = stream id) so external operators
+        # (Beth via the `command` verb) can drive it.
+        command_polling=True,
     )
     count = runner.run()
     typer.echo(
@@ -400,6 +404,153 @@ def position(
             )
             raise typer.Exit(code=1)
         typer.echo(json.dumps(stored, indent=2, default=str))
+    finally:
+        adapter.close()
+
+
+def _command_storage_uri(storage: str, storage_uri: Optional[str]) -> str:
+    """Resolve the storage URI for the command verbs.
+
+    Mirrors the ``position`` verb's conventions: SQLite defaults to
+    the shared ``eden_business_simulator.db`` file; NDJSON needs an
+    explicit ``--storage-uri`` (the daemon's events file).
+    """
+    if storage_uri is not None:
+        return storage_uri
+    if storage == "sqlite":
+        return "eden_business_simulator.db"
+    if storage == "ndjson":
+        typer.echo("--storage-uri is required for ndjson commands.", err=True)
+        raise typer.Exit(code=1)
+    return "memory://"
+
+
+@app.command(name="command")
+def submit_command(
+    business_type: str = typer.Argument(
+        ..., help="Business domain the run belongs to (e.g. cafe)."
+    ),
+    run_id: str = typer.Option(
+        ..., "--run-id", help="Run (stream) identifier the command targets."
+    ),
+    action_type: str = typer.Option(
+        ..., "--type", help="Action type to apply (e.g. place_supplier_order)."
+    ),
+    params: str = typer.Option(
+        "{}", "--params", help="Action parameters as a JSON object string."
+    ),
+    requested_by: Optional[str] = typer.Option(
+        None, "--requested-by", help="Who is asking for the action."
+    ),
+    approved_by: Optional[str] = typer.Option(
+        None,
+        "--approved-by",
+        help="Approval stamp; required for actions flagged requires_approval.",
+    ),
+    action_id: Optional[str] = typer.Option(
+        None,
+        "--action-id",
+        help="Idempotency key (defaults to the generated command id).",
+    ),
+    storage: str = typer.Option(
+        "sqlite", "--storage", help="Storage backend: 'sqlite', 'ndjson', or 'memory'."
+    ),
+    storage_uri: Optional[str] = typer.Option(
+        None, "--storage-uri", help="Storage URI or file path."
+    ),
+) -> None:
+    """Submit a management command to a daemon run's command table.
+
+    The command is stored as ``pending``; a running daemon for that
+    run picks it up between ticks, applies or rejects it through the
+    normal action pipeline, and records the outcome on the record.
+    """
+    if business_type not in list_business_types():
+        available = ", ".join(list_business_types())
+        typer.echo(
+            f"Unknown business_type '{business_type}'. Available: {available}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        parsed_params = json.loads(params)
+    except json.JSONDecodeError as exc:
+        typer.echo(f"--params is not valid JSON: {exc}", err=True)
+        raise typer.Exit(code=1)
+    if not isinstance(parsed_params, dict):
+        typer.echo("--params must be a JSON object.", err=True)
+        raise typer.Exit(code=1)
+
+    uri = _command_storage_uri(storage, storage_uri)
+    adapter = load_storage_adapter(storage, uri, run_id)
+    try:
+        command_id = adapter.submit_command(
+            run_id,
+            action_type,
+            parsed_params,
+            requested_by=requested_by,
+            approved_by=approved_by,
+            action_id=action_id,
+            submitted_at=datetime.now(timezone.utc).isoformat(),
+        )
+        record = adapter.list_commands(run_id)[-1]
+        typer.echo(
+            f"command={command_id} run_id={run_id} "
+            f"action_id={record['action_id']} status=pending"
+        )
+    finally:
+        adapter.close()
+
+
+@app.command(name="commands")
+def list_commands(
+    business_type: str = typer.Argument(
+        ..., help="Business domain the run belongs to (e.g. cafe)."
+    ),
+    run_id: str = typer.Option(
+        ..., "--run-id", help="Run (stream) identifier to list commands for."
+    ),
+    status: Optional[str] = typer.Option(
+        None, "--status", help="Filter: 'pending', 'applied', or 'rejected'."
+    ),
+    storage: str = typer.Option(
+        "sqlite", "--storage", help="Storage backend: 'sqlite', 'ndjson', or 'memory'."
+    ),
+    storage_uri: Optional[str] = typer.Option(
+        None, "--storage-uri", help="Storage URI or file path."
+    ),
+) -> None:
+    """List a run's commands in submission order."""
+    if business_type not in list_business_types():
+        available = ", ".join(list_business_types())
+        typer.echo(
+            f"Unknown business_type '{business_type}'. Available: {available}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if status is not None and status not in ("pending", "applied", "rejected"):
+        typer.echo(
+            f"--status must be one of: pending, applied, rejected (got '{status}').",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    uri = _command_storage_uri(storage, storage_uri)
+    adapter = load_storage_adapter(storage, uri, run_id)
+    try:
+        records = adapter.list_commands(run_id, status=status)
+        if not records:
+            typer.echo("No commands found.")
+            return
+        for record in records:
+            line = (
+                f"{record['command_id']} action_id={record['action_id']} "
+                f"type={record['action_type']} status={record['status']}"
+            )
+            result = record.get("result") or {}
+            if record["status"] == "rejected" and result.get("reason"):
+                line += f" reason={result['reason']}"
+            typer.echo(line)
     finally:
         adapter.close()
 

@@ -93,6 +93,17 @@ Key flags:
 
 If `--stream-id` is omitted, the daemon generates an identifier that includes the current UTC timestamp, for example `gym_seed42_20260802131900`. Replay and `status` need that exact value, so always pass an explicit `--stream-id` when you intend to replay or inspect a stream later.
 
+### Operating a live daemon (Phase 5)
+
+A running daemon also accepts management commands: an external
+operator writes a command into the run's storage with the `command`
+verb, the daemon polls the command table between ticks, applies or
+rejects it through the normal action pipeline, and records the
+outcome on the command record; `commands` lists the records. This is
+the Beth/Aleph integration point — see
+[docs/daemon.md](daemon.md) for the full contract (record shape,
+status lifecycle, the D9 approval rule, and restart idempotency).
+
 ## Read a stream's current position
 
 The daemon stores a position snapshot (cash, stock, open work — the

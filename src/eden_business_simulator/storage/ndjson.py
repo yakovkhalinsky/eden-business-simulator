@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from eden_business_simulator.models import EventEnvelope
-from eden_business_simulator.storage.base import StorageAdapter, StoredRecord
+from eden_business_simulator.storage.base import (
+    StorageAdapter,
+    StoredRecord,
+    build_command_record,
+    format_command_id,
+)
 
 
 class NdjsonStorageAdapter(StorageAdapter):
@@ -28,6 +33,9 @@ class NdjsonStorageAdapter(StorageAdapter):
         self._meta_path = self._path.with_suffix(".meta.json")
         self._meta = self._load_meta()
         self._next_sequence = self.latest_sequence() + 1
+        # Phase 5: commands live in a sibling append-only log next to
+        # the events file (``<name>.commands.jsonl`` for ``<name>.jsonl``).
+        self._commands_path = self._path.with_suffix(".commands.jsonl")
 
     def _load_meta(self) -> dict[str, Any]:
         if not self._meta_path.exists():
@@ -159,6 +167,158 @@ class NdjsonStorageAdapter(StorageAdapter):
     def read_checkpoint(self) -> dict[str, Any] | None:
         with self._lock:
             return self._meta["checkpoints"].get(self.stream_id)
+
+    # ------------------------------------------------------------------
+    # Command input (Phase 5): append-only command log.
+    #
+    # A submission appends one ``{"kind": "submit", "command": {...}}``
+    # line; resolving a command appends one ``{"kind": "resolution",
+    # ...}`` line — records are never rewritten. Reading folds the two
+    # line kinds in file order into the final record state, so replay
+    # of the command log re-derives both the records and the per-run
+    # ``cmd_NNNNNN`` counter. Every read goes back to the file, so a
+    # command submitted by a separate CLI process is visible to a
+    # long-running daemon adapter on its next poll.
+    # ------------------------------------------------------------------
+
+    def _append_command_line(self, entry: dict[str, Any]) -> None:
+        with self._commands_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, default=str) + "\n")
+            handle.flush()
+
+    def _fold_commands(self, run_id: str) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        by_id: dict[str, dict[str, Any]] = {}
+        if not self._commands_path.exists():
+            return records
+        with self._commands_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("kind") == "submit":
+                    record = entry["command"]
+                    if record["run_id"] != run_id:
+                        continue
+                    records.append(record)
+                    by_id[record["command_id"]] = record
+                elif entry.get("kind") == "resolution":
+                    record = by_id.get(entry["command_id"])
+                    if record is None:
+                        continue
+                    record["status"] = entry["status"]
+                    record["result"] = entry["result"]
+                    record["resolved_at"] = entry["resolved_at"]
+        return records
+
+    def submit_command(
+        self,
+        run_id: str,
+        action_type: str,
+        params: dict[str, Any],
+        requested_by: str | None = None,
+        approved_by: str | None = None,
+        action_id: str | None = None,
+        submitted_at: str | None = None,
+    ) -> str:
+        with self._lock:
+            existing = self._fold_commands(run_id)
+            record = build_command_record(
+                command_id=format_command_id(len(existing) + 1),
+                run_id=run_id,
+                action_type=action_type,
+                params=params,
+                requested_by=requested_by,
+                approved_by=approved_by,
+                action_id=action_id,
+                submitted_at=submitted_at or self._now().isoformat(),
+            )
+            self._append_command_line({"kind": "submit", "command": record})
+            return record["command_id"]
+
+    def pending_commands(self, run_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                record
+                for record in self._fold_commands(run_id)
+                if record["status"] == "pending"
+            ]
+
+    def list_commands(
+        self, run_id: str, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                record
+                for record in self._fold_commands(run_id)
+                if status is None or record["status"] == status
+            ]
+
+    def record_command_result(
+        self,
+        command_id: str,
+        status: str,
+        result_payload: dict[str, Any],
+        resolved_at: str,
+        run_id: str | None = None,
+    ) -> None:
+        with self._lock:
+            known = {
+                record["command_id"]
+                for record in self._fold_commands(run_id or self.stream_id)
+            }
+            if run_id is None:
+                # The command may belong to another run sharing this
+                # file; search every run's submissions.
+                known |= {
+                    record["command_id"]
+                    for record in self._fold_commands_all_runs()
+                }
+            if command_id not in known:
+                raise KeyError(f"Unknown command_id: {command_id}")
+            self._append_command_line(
+                {
+                    "kind": "resolution",
+                    "command_id": command_id,
+                    "run_id": run_id,
+                    "status": status,
+                    "result": result_payload,
+                    "resolved_at": resolved_at,
+                }
+            )
+
+    def _fold_commands_all_runs(self) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        if not self._commands_path.exists():
+            return records
+        with self._commands_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("kind") == "submit":
+                    records.append(entry["command"])
+        return records
+
+    def applied_action_ids(self, run_id: str) -> set[str]:
+        with self._lock:
+            ids = {
+                record["action_id"]
+                for record in self._fold_commands(run_id)
+                if record["status"] == "applied"
+            }
+        for stored in self.read_from():
+            if stored.envelope.event_type == "action_applied":
+                action_id = stored.envelope.payload.get("action_id")
+                if action_id:
+                    ids.add(action_id)
+        return ids
 
     def stream_ids(self) -> list[str]:
         with self._lock:
