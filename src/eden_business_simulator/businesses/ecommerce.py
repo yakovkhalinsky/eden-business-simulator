@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 from datetime import datetime, timezone
 from typing import Any
@@ -327,6 +328,53 @@ class EcommerceSimulator(BusinessSimulator):
             "order_count": len(self.orders),
             "orders_by_status": self._orders_by_status(),
         }
+
+    # ------------------------------------------------------------------
+    # Full-state snapshot / restore (restorable state, S3)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture every piece of mutable business state.
+
+        Ecommerce has no IdGenerator (the framework section therefore
+        carries no id counters for it): its three ad-hoc counters are
+        captured explicitly here. Product and customer IDs derive from
+        ``len(...)`` of their collections, which stays correct only
+        because the collections themselves are restored faithfully.
+        Customers carry real ``datetime`` values in ``registered_at``
+        and orders in ``placed_at``; the framework codec encodes them
+        explicitly. Product dicts are captured whole, so action-mutated
+        prices and inventory survive, as do orders' action-added
+        ``expedited``/``carrier`` fields. The definition-shadowed
+        currency tuple is captured on the trades precedent.
+        """
+        return {
+            "customers": copy.deepcopy(self.customers),
+            "products": copy.deepcopy(self.products),
+            "carts": copy.deepcopy(self.carts),
+            "orders": copy.deepcopy(self.orders),
+            "order_counter": self.order_counter,
+            "payment_counter": self.payment_counter,
+            "event_counter": self.event_counter,
+            "currencies": list(self._CURRENCIES),
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace all business state from :meth:`serialize_state`.
+
+        Runs after a fresh ``initialize()`` on the daemon path, so
+        every attribute captured above is overwritten wholesale —
+        nothing from the initial state may leak through.
+        """
+        self.customers = copy.deepcopy(state["customers"])
+        self.products = copy.deepcopy(state["products"])
+        self.carts = copy.deepcopy(state["carts"])
+        self.orders = copy.deepcopy(state["orders"])
+        self.order_counter = state["order_counter"]
+        self.payment_counter = state["payment_counter"]
+        self.event_counter = state["event_counter"]
+        if "currencies" in state:
+            self._CURRENCIES = tuple(state["currencies"])
 
     def position_snapshot(self) -> dict[str, Any]:
         paid_orders = [

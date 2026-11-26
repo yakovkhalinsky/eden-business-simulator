@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -361,6 +362,76 @@ class SaaSSimulator(BusinessSimulator):
             "invoice_count": len(self.invoices),
             "ticket_count": len(self.tickets),
         }
+
+    # ------------------------------------------------------------------
+    # Full-state snapshot / restore (restorable state, S3)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture every piece of mutable business state.
+
+        SaaS has no IdGenerator (the framework section therefore
+        carries no id counters for it): its six ad-hoc counters are
+        captured explicitly here — including ``churn_counter``, a
+        position field the old summary snapshot never captured.
+        Subscription IDs derive from ``len(self.subscriptions)``,
+        which stays correct only because the subscriptions dict is
+        restored faithfully (keys, statuses — including action-set
+        ``frozen`` — action-changed fees, and any ``discount`` the
+        offer_discount action recorded). Accounts carry real
+        ``datetime`` values in ``signup_at``; the framework codec
+        encodes them explicitly and restore preserves the original
+        stamps rather than re-stamping. ``_PLANS`` is captured as
+        instance state (the ``change_plan_price`` action rebuilds it)
+        and restored to its native tuple-of-tuples shape, which the
+        unpacking code in the emitters and handlers requires. The
+        remaining definition-shadowed tuples ride along on the trades
+        precedent.
+        """
+        return {
+            "accounts": copy.deepcopy(self.accounts),
+            "subscriptions": copy.deepcopy(self.subscriptions),
+            "invoices": copy.deepcopy(self.invoices),
+            "tickets": copy.deepcopy(self.tickets),
+            "discounts": copy.deepcopy(self.discounts),
+            "account_counter": self.account_counter,
+            "feature_counter": self.feature_counter,
+            "invoice_counter": self.invoice_counter,
+            "payment_counter": self.payment_counter,
+            "ticket_counter": self.ticket_counter,
+            "churn_counter": self.churn_counter,
+            "plans": [list(row) for row in self._PLANS],
+            "features": list(self._FEATURES),
+            "severities": list(self._SEVERITIES),
+            "churn_reasons": list(self._CHURN_REASONS),
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace all business state from :meth:`serialize_state`.
+
+        Runs after a fresh ``initialize()`` on the daemon path, so
+        every attribute captured above is overwritten wholesale —
+        nothing from the initial state may leak through.
+        """
+        self.accounts = copy.deepcopy(state["accounts"])
+        self.subscriptions = copy.deepcopy(state["subscriptions"])
+        self.invoices = copy.deepcopy(state["invoices"])
+        self.tickets = copy.deepcopy(state["tickets"])
+        self.discounts = copy.deepcopy(state["discounts"])
+        self.account_counter = state["account_counter"]
+        self.feature_counter = state["feature_counter"]
+        self.invoice_counter = state["invoice_counter"]
+        self.payment_counter = state["payment_counter"]
+        self.ticket_counter = state["ticket_counter"]
+        self.churn_counter = state["churn_counter"]
+        if "plans" in state:
+            self._PLANS = tuple(tuple(row) for row in state["plans"])
+        if "features" in state:
+            self._FEATURES = tuple(state["features"])
+        if "severities" in state:
+            self._SEVERITIES = tuple(state["severities"])
+        if "churn_reasons" in state:
+            self._CHURN_REASONS = tuple(state["churn_reasons"])
 
     def position_snapshot(self) -> dict[str, Any]:
         active_subs = [

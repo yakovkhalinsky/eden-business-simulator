@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -14,7 +15,7 @@ from eden_business_simulator.businesses.base import (
     DEFAULT_TAX_TYPE,
     compute_tax,
 )
-from eden_business_simulator.framework.actors import ActorPool
+from eden_business_simulator.framework.actors import Actor, ActorPool
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
 from eden_business_simulator.models import Clock
@@ -146,6 +147,92 @@ class ClinicSimulator(BusinessSimulator):
             "claim_count": len(self.claims),
             "appointments_by_status": self._appointments_by_status(),
         }
+
+    # ------------------------------------------------------------------
+    # Full-state snapshot / restore (restorable state, S3)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture every piece of mutable business state.
+
+        Appointments carry real ``datetime`` values in
+        ``scheduled_time`` (arithmetic is performed on them at
+        reschedule time) and provider shifts carry ``date`` values;
+        the framework's full-state codec encodes both explicitly so
+        they come back as real objects, not strings. Claims carry any
+        action-added chase fields and encounters their
+        ``claim_submitted`` flags, since the entity dicts are captured
+        whole. The definition-shadowed tuples are captured too (the
+        trades precedent): they are shadowed onto the instance at
+        ``initialize()`` time, so this keeps the restored instance
+        identical even if it was built against a different definition
+        revision. The catalogue holds no run state.
+        """
+        return {
+            "patients": [
+                {
+                    "actor_id": actor.actor_id,
+                    "actor_type": actor.actor_type,
+                    "name": actor.name,
+                    "attributes": copy.deepcopy(actor.attributes),
+                }
+                for actor in self.patients.all()
+            ],
+            "providers": [
+                {
+                    "actor_id": actor.actor_id,
+                    "actor_type": actor.actor_type,
+                    "name": actor.name,
+                    "attributes": copy.deepcopy(actor.attributes),
+                }
+                for actor in self.providers.all()
+            ],
+            "appointments": copy.deepcopy(self.appointments),
+            "encounters": copy.deepcopy(self.encounters),
+            "lab_orders": copy.deepcopy(self.lab_orders),
+            "claims": copy.deepcopy(self.claims),
+            "provider_shifts": copy.deepcopy(self.provider_shifts),
+            "appointment_types": list(self._APPOINTMENT_TYPES),
+            "icd10": [list(row) for row in self._ICD10],
+            "cpt": [list(row) for row in self._CPT],
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace all business state from :meth:`serialize_state`.
+
+        Runs after a fresh ``initialize()`` on the daemon path, so
+        every attribute captured above is overwritten wholesale —
+        nothing from the initial state may leak through.
+        """
+        self.patients._actors = [
+            Actor(
+                actor_id=row["actor_id"],
+                actor_type=row["actor_type"],
+                name=row["name"],
+                attributes=copy.deepcopy(row["attributes"]),
+            )
+            for row in state["patients"]
+        ]
+        self.providers._actors = [
+            Actor(
+                actor_id=row["actor_id"],
+                actor_type=row["actor_type"],
+                name=row["name"],
+                attributes=copy.deepcopy(row["attributes"]),
+            )
+            for row in state["providers"]
+        ]
+        self.appointments = copy.deepcopy(state["appointments"])
+        self.encounters = copy.deepcopy(state["encounters"])
+        self.lab_orders = copy.deepcopy(state["lab_orders"])
+        self.claims = copy.deepcopy(state["claims"])
+        self.provider_shifts = copy.deepcopy(state["provider_shifts"])
+        if "appointment_types" in state:
+            self._APPOINTMENT_TYPES = tuple(state["appointment_types"])
+        if "icd10" in state:
+            self._ICD10 = tuple(tuple(row) for row in state["icd10"])
+        if "cpt" in state:
+            self._CPT = tuple(tuple(row) for row in state["cpt"])
 
     def position_snapshot(self) -> dict[str, Any]:
         encounters_by_status: dict[str, int] = {}

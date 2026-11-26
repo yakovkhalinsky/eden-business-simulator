@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -14,7 +15,7 @@ from eden_business_simulator.businesses.base import (
     DEFAULT_TAX_TYPE,
     compute_tax,
 )
-from eden_business_simulator.framework.actors import ActorPool
+from eden_business_simulator.framework.actors import Actor, ActorPool
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
 from eden_business_simulator.framework.scheduler import Daypart, DaypartScheduler
@@ -166,6 +167,80 @@ class LogisticsSimulator(BusinessSimulator):
                 "fuel_cost_total": round(self._fuel_cost_total, 2),
             },
         }
+
+    # ------------------------------------------------------------------
+    # Full-state snapshot / restore (restorable state, S3)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture every piece of mutable business state.
+
+        All seven entity lists are captured whole: routes and stops
+        carry their sequence state and lazily-added fields
+        (``started_at``/``completed_at`` on routes, ``arrived_at`` on
+        stops, ``eta`` on stops, ``attempted_at`` on attempts — all
+        real ``datetime`` values the framework codec encodes
+        explicitly), shipments their action-added ``expedited`` flag,
+        and vehicles their accumulated odometer readings. The fuel
+        accumulator (a position field the old summary snapshot never
+        captured) and the definition-derived ``hub_id`` are included,
+        as are the definition-shadowed tuples on the trades precedent.
+        The ``feedback`` list is captured for completeness even though
+        no emitter currently appends to it. The catalogue and daypart
+        scheduler hold no run state.
+        """
+        return {
+            "drivers": [
+                {
+                    "actor_id": actor.actor_id,
+                    "actor_type": actor.actor_type,
+                    "name": actor.name,
+                    "attributes": copy.deepcopy(actor.attributes),
+                }
+                for actor in self.drivers.all()
+            ],
+            "vehicles": copy.deepcopy(self.vehicles),
+            "shipments": copy.deepcopy(self.shipments),
+            "routes": copy.deepcopy(self.routes),
+            "stops": copy.deepcopy(self.stops),
+            "attempts": copy.deepcopy(self.attempts),
+            "feedback": copy.deepcopy(self.feedback),
+            "returns": copy.deepcopy(self.returns),
+            "fuel_cost_total": self._fuel_cost_total,
+            "hub_id": self.hub_id,
+            "service_levels": list(self._SERVICE_LEVELS),
+            "exception_reasons": list(self._EXCEPTION_REASONS),
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace all business state from :meth:`serialize_state`.
+
+        Runs after a fresh ``initialize()`` on the daemon path, so
+        every attribute captured above is overwritten wholesale —
+        nothing from the initial state may leak through.
+        """
+        self.drivers._actors = [
+            Actor(
+                actor_id=row["actor_id"],
+                actor_type=row["actor_type"],
+                name=row["name"],
+                attributes=copy.deepcopy(row["attributes"]),
+            )
+            for row in state["drivers"]
+        ]
+        self.vehicles = copy.deepcopy(state["vehicles"])
+        self.shipments = copy.deepcopy(state["shipments"])
+        self.routes = copy.deepcopy(state["routes"])
+        self.stops = copy.deepcopy(state["stops"])
+        self.attempts = copy.deepcopy(state["attempts"])
+        self.feedback = copy.deepcopy(state["feedback"])
+        self.returns = copy.deepcopy(state["returns"])
+        self._fuel_cost_total = state["fuel_cost_total"]
+        self.hub_id = state["hub_id"]
+        if "service_levels" in state:
+            self._SERVICE_LEVELS = tuple(state["service_levels"])
+        if "exception_reasons" in state:
+            self._EXCEPTION_REASONS = tuple(state["exception_reasons"])
 
     # ------------------------------------------------------------------
     # Internal helpers

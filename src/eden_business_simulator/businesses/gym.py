@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -14,7 +15,7 @@ from eden_business_simulator.businesses.base import (
     DEFAULT_TAX_TYPE,
     compute_tax,
 )
-from eden_business_simulator.framework.actors import ActorPool, StaffRoster
+from eden_business_simulator.framework.actors import Actor, ActorPool, StaffRoster
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
 from eden_business_simulator.framework.scheduler import Daypart, DaypartScheduler
@@ -199,13 +200,105 @@ class GymSimulator(BusinessSimulator):
             },
         }
 
+    # ------------------------------------------------------------------
+    # Full-state snapshot / restore (restorable state, S3)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture every piece of mutable business state.
+
+        Beyond the entity collections this includes the memberships
+        dict (statuses and fees mutated by freeze/unfreeze and
+        upgrade/downgrade events and by actions), the staff roster's
+        clocked-in flags, the at-risk member *set* (encoded as a
+        sorted list), and ``_PLANS`` — the plan table the
+        ``adjust_plan_price`` action mutates, captured as instance
+        state rather than rebuilt from the definition, so an approved
+        price change survives a restart. Bookings, sessions, workouts
+        and failed payments carry real ``datetime`` values
+        (``booked_at``/``scheduled_at``/``logged_at``/``attempted_at``);
+        the framework codec encodes them explicitly. The remaining
+        definition-shadowed tuples are captured on the trades
+        precedent. (Gym has no discounts state — discounts are a saas
+        concept; nothing to capture here.)
+        """
+        return {
+            "members": [
+                {
+                    "actor_id": actor.actor_id,
+                    "actor_type": actor.actor_type,
+                    "name": actor.name,
+                    "attributes": copy.deepcopy(actor.attributes),
+                }
+                for actor in self.members.all()
+            ],
+            "staff": copy.deepcopy(self.staff._staff),
+            "memberships": copy.deepcopy(self.memberships),
+            "classes": copy.deepcopy(self.classes),
+            "bookings": copy.deepcopy(self.bookings),
+            "sessions": copy.deepcopy(self.sessions),
+            "workouts": copy.deepcopy(self.workouts),
+            "payments_failed": copy.deepcopy(self.payments_failed),
+            "invoices_counter": self.invoices_counter,
+            "cancelled_members": list(self._cancelled_members),
+            "frozen_members": list(self._frozen_members),
+            "at_risk_members": sorted(self.at_risk_members),
+            "plans": copy.deepcopy(self._PLANS),
+            "tiers": list(self._TIERS),
+            "class_types": list(self._CLASS_TYPES),
+            "retail_skus": [list(row) for row in self._RETAIL_SKUS],
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace all business state from :meth:`serialize_state`.
+
+        Runs after a fresh ``initialize()`` on the daemon path (and
+        after the legacy summary ``restore()`` hook, whose two fields
+        are overwritten here with the full-state values), so every
+        attribute captured above is replaced wholesale — nothing from
+        the initial state may leak through.
+        """
+        self.members._actors = [
+            Actor(
+                actor_id=row["actor_id"],
+                actor_type=row["actor_type"],
+                name=row["name"],
+                attributes=copy.deepcopy(row["attributes"]),
+            )
+            for row in state["members"]
+        ]
+        self.staff._staff = copy.deepcopy(state["staff"])
+        self.memberships = copy.deepcopy(state["memberships"])
+        self.classes = copy.deepcopy(state["classes"])
+        self.bookings = copy.deepcopy(state["bookings"])
+        self.sessions = copy.deepcopy(state["sessions"])
+        self.workouts = copy.deepcopy(state["workouts"])
+        self.payments_failed = copy.deepcopy(state["payments_failed"])
+        self.invoices_counter = state["invoices_counter"]
+        self._cancelled_members = list(state["cancelled_members"])
+        self._frozen_members = list(state["frozen_members"])
+        self.at_risk_members = set(state["at_risk_members"])
+        self._PLANS = {
+            name: dict(plan) for name, plan in state["plans"].items()
+        }
+        if "tiers" in state:
+            self._TIERS = tuple(state["tiers"])
+        if "class_types" in state:
+            self._CLASS_TYPES = tuple(state["class_types"])
+        if "retail_skus" in state:
+            self._RETAIL_SKUS = tuple(
+                tuple(row) for row in state["retail_skus"]
+            )
+
     def restore(self, snapshot: dict[str, Any]) -> None:
         """Restore the restorable fields of the summary snapshot.
 
         ``state_snapshot()`` is a summary: it does not capture the member,
-        membership, class or booking collections, so those restart from
-        ``initialize()`` on resume (full-state restore is the restorable-
-        state project's S3 slice). What the snapshot *does* carry as state
+        membership, class or booking collections. Genuine resume goes
+        through the ``full_state`` section (see :meth:`serialize_state`,
+        restorable-state S3), which the runner applies after this hook;
+        this hook remains for legacy summary snapshots. What the summary
+        *does* carry as state
         in its own right is restored here, so snapshot and restore stay
         consistent: the invoice counter and the cancelled-member list
         (the catalogue guards consult the latter, so losing it on resume
