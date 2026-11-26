@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from eden_business_simulator.framework.scenario import ScenarioScheduleEntry
+
 
 class SimulatorConfig(BaseModel):
     """Configuration for a single simulator run."""
@@ -34,6 +36,12 @@ class SimulatorConfig(BaseModel):
     # boundaries (plus a final partial summary at run end). Only applies
     # when the business definition declares KPIs.
     period_summaries_enabled: bool = True
+
+    # Phase 6: scenario packs scheduled for this run. Each entry
+    # activates a named pack (configs/scenarios.json) at a simulated
+    # offset from run start, for the pack's default duration or an
+    # override. Empty (the default) leaves selection untouched.
+    scenario_schedule: list[ScenarioScheduleEntry] = Field(default_factory=list)
 
     @field_validator("position_snapshot_every_events")
     @classmethod
@@ -71,6 +79,22 @@ class SimulatorConfig(BaseModel):
         if value <= 0:
             raise ValueError("checkpoint_interval_events must be positive")
         return value
+
+    @model_validator(mode="after")
+    def scenario_names_must_be_known(self) -> "SimulatorConfig":
+        # Fail fast at configuration time: an unknown pack name is a
+        # configuration error, raised before any event is generated.
+        if self.scenario_schedule:
+            from eden_business_simulator.framework.scenario import (
+                load_scenarios,
+                unknown_scenario_error,
+            )
+
+            packs = load_scenarios()
+            for entry in self.scenario_schedule:
+                if entry.name not in packs:
+                    raise unknown_scenario_error(entry.name)
+        return self
 
     @model_validator(mode="after")
     def webhook_required_for_http(self) -> "SimulatorConfig":

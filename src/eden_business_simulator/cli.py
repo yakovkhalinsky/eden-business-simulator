@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import time
 import typer
@@ -32,6 +32,36 @@ def _build_adapter(config: SimulatorConfig):
     if config.output_mode == "none":
         return None
     raise ValueError(f"Unsupported output mode: {config.output_mode}")
+
+
+def _scenario_schedule(names: List[str], duration: Optional[int]):
+    """Build a SimulatorConfig scenario schedule from CLI flags (Phase 6).
+
+    Every ``--scenario NAME`` starts at run start (offset 0) with the
+    pack's default duration, or ``--scenario-duration`` when given.
+    Unknown names are a clean parameter error, not a traceback.
+    """
+    from eden_business_simulator.framework.scenario import (
+        ScenarioScheduleEntry,
+        load_scenarios,
+    )
+
+    packs = load_scenarios()
+    entries = []
+    for name in names:
+        if name not in packs:
+            available = ", ".join(sorted(packs))
+            raise typer.BadParameter(
+                f"unknown scenario '{name}'. Available: {available}"
+            )
+        entries.append(
+            ScenarioScheduleEntry(
+                name=name,
+                start_offset_minutes=0,
+                duration_minutes=duration,
+            )
+        )
+    return entries
 
 
 def _make_stream_id(business_type: str, seed: int, explicit: str | None) -> str:
@@ -72,6 +102,17 @@ def run(
         "--period-summaries/--no-period-summaries",
         help="Emit period_summary KPI events at simulated day boundaries.",
     ),
+    scenario: List[str] = typer.Option(
+        [],
+        "--scenario",
+        help="Scenario pack to activate at run start (repeatable).",
+    ),
+    scenario_duration: Optional[int] = typer.Option(
+        None,
+        "--scenario-duration",
+        help="Duration in simulated minutes for all --scenario packs "
+        "(default: each pack's own default).",
+    ),
 ) -> None:
     """Run a business simulator and stream events."""
     config = SimulatorConfig(
@@ -83,6 +124,7 @@ def run(
         output_mode=output,  # type: ignore[arg-type]
         webhook_url=webhook_url,
         period_summaries_enabled=period_summaries,
+        scenario_schedule=_scenario_schedule(scenario, scenario_duration),
     )
 
     simulator = load_simulator(config.business_type)
@@ -142,6 +184,17 @@ def daemon(
         "--period-summaries/--no-period-summaries",
         help="Emit period_summary KPI events at simulated day boundaries.",
     ),
+    scenario: List[str] = typer.Option(
+        [],
+        "--scenario",
+        help="Scenario pack to activate at run start (repeatable).",
+    ),
+    scenario_duration: Optional[int] = typer.Option(
+        None,
+        "--scenario-duration",
+        help="Duration in simulated minutes for all --scenario packs "
+        "(default: each pack's own default).",
+    ),
     realtime: bool = typer.Option(
         True,
         "--realtime/--no-realtime",
@@ -171,6 +224,7 @@ def daemon(
         checkpoint_interval_events=checkpoint_events,
         position_snapshot_every_events=position_snapshot_every_events,
         period_summaries_enabled=period_summaries,
+        scenario_schedule=_scenario_schedule(scenario, scenario_duration),
     )
 
     simulator = load_simulator(config.business_type)

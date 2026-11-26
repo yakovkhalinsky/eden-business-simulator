@@ -91,6 +91,26 @@ class Runner:
         for _, request in due:
             self._process_action(request)
 
+    def _drain_scenario_events(self) -> None:
+        """Emit scenario_started/scenario_ended markers (Phase 6).
+
+        Framework events in the same family as ``period_summary``:
+        written to the adapter but never counted toward ``max_events``
+        and never observed by the KPI tracker.
+        """
+        transitions_fn = getattr(self.simulator, "scenario_transitions", None)
+        if not callable(transitions_fn):
+            return
+        for event in transitions_fn(self.clock):
+            self.adapter.write(
+                EventEnvelope.from_event(
+                    business_type=self.config.business_type,
+                    event_type=event["event_type"],
+                    payload=event.get("payload", {}),
+                    timestamp=self.clock.now,
+                )
+            )
+
     def _write_period_summary(self, payload: dict) -> None:
         self.adapter.write(
             EventEnvelope.from_event(
@@ -120,6 +140,11 @@ class Runner:
                     closed = self._tracker.close_if_crossed(self.clock.now)
                     if closed is not None:
                         self._write_period_summary(closed)
+                # Phase 6: scenario starts/ends crossed by the clock
+                # land between ticks too, before the next business
+                # event is selected (so a pack starting at offset 0 is
+                # already active for the first event).
+                self._drain_scenario_events()
                 # Phase 3: scripted actions land between ticks, after
                 # any period close and before the next business event.
                 self._drain_scripted_actions()

@@ -205,6 +205,30 @@ class ContinuousRunner:
                 break
             self._process_action(request)
 
+    def _drain_scenario_events(self) -> None:
+        """Emit scenario_started/scenario_ended markers (Phase 6).
+
+        Same treatment as period summaries: each marker gets a normal
+        sequence and is persisted/output, but does not count toward
+        ``max_events`` and is not observed by the KPI tracker.
+        """
+        transitions_fn = getattr(self.simulator, "scenario_transitions", None)
+        if not callable(transitions_fn):
+            return
+        for event in transitions_fn(self.clock):
+            envelope = EventEnvelope.from_event(
+                business_type=self.config.business_type,
+                event_type=event["event_type"],
+                payload=event.get("payload", {}),
+                timestamp=self.clock.now,
+                stream_id=self.config.stream_id,
+                sequence=self._next_sequence,
+            )
+            self.storage.append(envelope)
+            if self.output is not None:
+                self.output.write(envelope)
+            self._next_sequence += 1
+
     def _emit_period_summary(self, payload: dict) -> None:
         """Persist/emit a period_summary event (Phase 2).
 
@@ -339,6 +363,9 @@ class ContinuousRunner:
                     closed = self._tracker.close_if_crossed(self.clock.now)
                     if closed is not None:
                         self._emit_period_summary(closed)
+                # Phase 6: scenario starts/ends crossed by the clock
+                # land between ticks, before the next business event.
+                self._drain_scenario_events()
                 # Phase 3: actions land between ticks, after any period
                 # close and before the next business event.
                 self._drain_actions()

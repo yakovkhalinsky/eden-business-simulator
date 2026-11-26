@@ -159,6 +159,7 @@ class BusinessSimulator(ABC):
         self.config = config
         self.definition = None
         self.definition_hash = None
+        self._setup_scenarios(config)
         try:
             from eden_business_simulator.framework.definition import load_definition
 
@@ -168,6 +169,60 @@ class BusinessSimulator(ABC):
         definition.validate_overrides(config.initial_state_overrides)
         self.definition = definition
         self.definition_hash = definition.definition_hash()
+
+    # ------------------------------------------------------------------
+    # Scenario packs (Phase 6)
+    # ------------------------------------------------------------------
+
+    def _setup_scenarios(self, config: SimulatorConfig) -> None:
+        """Build the scenario engine from the run's schedule, if any.
+
+        Construction resolves pack names, so an unknown name raises a
+        clear configuration error here — before any event exists. An
+        empty schedule leaves no engine, and every scenario hook below
+        degrades to a no-op (multiplier exactly 1.0, no transitions),
+        which is what keeps unscheduled runs byte-identical.
+        """
+        from eden_business_simulator.framework.scenario import ScenarioEngine
+
+        schedule = getattr(config, "scenario_schedule", None) or []
+        self._scenario_engine = (
+            ScenarioEngine(schedule, seed=config.seed) if schedule else None
+        )
+
+    def weight_multiplier(self, event_type: str) -> float:
+        """Scenario multiplier for one event type (the catalogue hook).
+
+        ``WeightedEventCatalog`` consults this on the selection context
+        (the simulator itself) for every candidate type. Returns
+        exactly 1.0 when no scenario targets the type, so weights —
+        and therefore the deterministic stream — are unchanged.
+        """
+        engine = getattr(self, "_scenario_engine", None)
+        if engine is None:
+            return 1.0
+        return engine.weight_multiplier(event_type)
+
+    def scenario_transitions(self, clock: Clock) -> list[dict[str, Any]]:
+        """Marker events for scenario starts/ends crossed by ``clock``.
+
+        Runners call this between ticks (like the period-summary
+        close) and emit the returned ``scenario_started`` /
+        ``scenario_ended`` dicts as framework events.
+        """
+        engine = getattr(self, "_scenario_engine", None)
+        if engine is None:
+            return []
+        return engine.transitions(
+            clock.now, clock.elapsed_seconds() / 60.0
+        )
+
+    def active_scenarios(self) -> list[dict[str, Any]]:
+        """Currently active scenarios (name + started/ends timestamps)."""
+        engine = getattr(self, "_scenario_engine", None)
+        if engine is None:
+            return []
+        return engine.active_scenarios()
 
     @abstractmethod
     def initialize(self, seed: int) -> None:

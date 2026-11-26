@@ -30,6 +30,9 @@ class WeightedEventCatalog:
     * A shared ``DaypartScheduler`` can be supplied as a convenience; when an
       entry has no explicit ``time_modifier`` the scheduler's modifier for that
       event type and hour is used.
+    * If the ``context`` exposes a callable ``weight_multiplier(event_type)``
+      (simulators do — Phase 6 scenario packs), its result multiplies the
+      weight as the final step.
 
     The catalog itself does not mutate simulator state; callers update their own
     state after ``choose`` returns.
@@ -75,7 +78,19 @@ class WeightedEventCatalog:
         elif self.scheduler is not None:
             modifier = self.scheduler.modifier_for(event_type, hour)
 
-        return entry.base_weight * modifier
+        weight = entry.base_weight * modifier
+
+        # Phase 6 scenario hook: simulators pass themselves as the
+        # selection context, and BusinessSimulator exposes
+        # ``weight_multiplier`` — the product of active scenario pack
+        # multipliers for this type. Contexts without the hook (test
+        # doubles, plain objects) are untouched, and a multiplier of
+        # exactly 1.0 leaves the weight byte-identical.
+        hook = getattr(context, "weight_multiplier", None)
+        if callable(hook):
+            weight = weight * hook(event_type)
+
+        return weight
 
     def choose(self, hour: int, context: Any = None) -> str | None:
         """Return a weighted-random event type, or ``None`` if nothing is eligible."""

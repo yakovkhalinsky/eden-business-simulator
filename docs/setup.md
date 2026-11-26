@@ -104,6 +104,23 @@ the Beth/Aleph integration point — see
 [docs/daemon.md](daemon.md) for the full contract (record shape,
 status lifecycle, the D9 approval rule, and restart idempotency).
 
+### Scheduling scenario packs (Phase 6)
+
+Runs can be disrupted on a schedule with scenario packs — config-only
+weight multipliers (a supplier failure, a demand spike, a churn wave)
+that activate at a simulated offset and expire after a duration,
+bracketed by `scenario_started`/`scenario_ended` markers:
+
+```bash
+uv run eden-business-simulator run cafe \
+  --scenario demand_spike --scenario-duration 720 --no-realtime
+uv run eden-business-simulator daemon saas \
+  --scenario churn_wave --storage sqlite --storage-uri saas.db
+```
+
+See [docs/scenarios.md](scenarios.md) for the pack catalogue,
+scheduling model, and determinism rules.
+
 ## Read a stream's current position
 
 The daemon stores a position snapshot (cash, stock, open work — the

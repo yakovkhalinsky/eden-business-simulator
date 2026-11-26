@@ -73,6 +73,7 @@ The daemon writes periodic checkpoints and a final checkpoint on shutdown so it 
 - [`docs/businesses/`](docs/businesses/) — one guide per supported business type with domain overview, systems, workflow, event catalog, and example payloads.
 - [`docs/architecture.md`](docs/architecture.md) — event envelope, clock, runners, storage/output adapters, `BusinessSimulator` lifecycle, and framework helpers.
 - [`docs/daemon.md`](docs/daemon.md) — the daemon command-input contract (Phase 5): submitting commands to a live run, the record shape, status lifecycle, approval rule, and restart idempotency.
+- [`docs/scenarios.md`](docs/scenarios.md) — scenario packs (Phase 6): the five config-driven disruption packs, how to schedule them, the marker events, and the determinism rules.
 - [`docs/adding_a_business.md`](docs/adding_a_business.md) — runbook for adding a new simulator and updating the docs.
 
 ## Tests

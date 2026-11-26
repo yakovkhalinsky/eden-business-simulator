@@ -1,0 +1,83 @@
+{
+  "scenarios": [
+    {
+      "description": "Suppliers falter: deliveries to the cafe almost stop arriving, so stock runs down until the failure clears \u2014 and staff count stock far more often as shortages bite.",
+      "duration_minutes": 2880,
+      "effects": [
+        {
+          "event_type": "supplier_delivery_received",
+          "multiplier": 0.1
+        },
+        {
+          "event_type": "stock_count_recorded",
+          "multiplier": 3.0
+        }
+      ],
+      "name": "supplier_failure"
+    },
+    {
+      "description": "Staff call in sick: far fewer cafe staff clock in for a shift. No catalogue has a dedicated absence event type, so a sick day manifests as missing clock-ins.",
+      "duration_minutes": 480,
+      "effects": [
+        {
+          "event_type": "staff_clocked_in",
+          "multiplier": 0.25
+        }
+      ],
+      "name": "staff_sick_day"
+    },
+    {
+      "description": "Demand surges across the board: cafe orders, ecommerce orders, gym check-ins and enrolments, and logistics shipments all jump.",
+      "duration_minutes": 1440,
+      "effects": [
+        {
+          "event_type": "order_taken",
+          "multiplier": 2.5
+        },
+        {
+          "event_type": "order_placed",
+          "multiplier": 2.5
+        },
+        {
+          "event_type": "check_in_recorded",
+          "multiplier": 2.5
+        },
+        {
+          "event_type": "membership_enrolled",
+          "multiplier": 2.5
+        },
+        {
+          "event_type": "shipment_created",
+          "multiplier": 2.5
+        }
+      ],
+      "name": "demand_spike"
+    },
+    {
+      "description": "Customers leave in a wave: SaaS churn and gym membership cancellations spike.",
+      "duration_minutes": 2880,
+      "effects": [
+        {
+          "event_type": "churned",
+          "multiplier": 4.0
+        },
+        {
+          "event_type": "membership_cancelled",
+          "multiplier": 4.0
+        }
+      ],
+      "name": "churn_wave"
+    },
+    {
+      "description": "Payments start failing everywhere: SaaS and gym payment failures spike. (Ecommerce failures are a payload outcome of payment_processed, and clinic claim denials a payload outcome of claim_adjudicated, so neither is a selectable event type a multiplier can target.)",
+      "duration_minutes": 1440,
+      "effects": [
+        {
+          "event_type": "payment_failed",
+          "multiplier": 4.0
+        }
+      ],
+      "name": "payment_failure_wave"
+    }
+  ]
+}

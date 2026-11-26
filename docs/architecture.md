@@ -301,6 +301,17 @@ refused once a shipment is delivered), and `initiate_return`
 (reusing the catalogued `return_initiated`; delivered shipments
 only).
 
+Phase 6 adds scenario packs (`framework/scenario.py`): named,
+config-only weight multipliers declared in `configs/scenarios.json`
+and carried on `SimulatorConfig.scenario_schedule`. The simulator
+holds a `ScenarioEngine` that activates/expires packs as the clock
+crosses schedule boundaries; runners emit `scenario_started` /
+`scenario_ended` markers between ticks (sequence-consuming but not
+`max_events`-counted, never KPI-observed), and the weighted catalogue
+applies active multipliers through a `weight_multiplier` hook on the
+selection context — the simulator itself — so all nine businesses are
+covered with no per-business code. See `docs/scenarios.md`.
+
 Simulators must never rely on global random state. They should create local `random.Random` and `faker.Faker` instances seeded from `initialize(seed)`.
 
 ## Framework helpers
