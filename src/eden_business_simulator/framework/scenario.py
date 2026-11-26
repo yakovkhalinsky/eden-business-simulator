@@ -30,6 +30,13 @@ Determinism rules:
   The v1 packs are pure multipliers and draw nothing from it; the
   stream exists so future state-mutating packs have somewhere
   deterministic to draw from.
+* Resume (restorable-state S4, R4): the engine's pending/active
+  state is checkpointed in the snapshot envelope (see
+  ``serialize_state``), so a resumed daemon neither re-fires
+  ``scenario_started`` for an in-flight pack nor loses its ending,
+  and a pending pack still fires at its original offset — the
+  runner restores the simulated clock alongside, which is what
+  keeps the relative offsets meaningful.
 """
 
 from __future__ import annotations
@@ -44,6 +51,11 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
+
+from eden_business_simulator.framework.state_codec import (
+    decode_random_state,
+    encode_random_state,
+)
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 SCENARIOS_PATH = CONFIGS_DIR / "scenarios.json"
@@ -264,3 +276,84 @@ class ScenarioEngine:
             if active.definition.name == name:
                 return active.rng
         return None
+
+    # -- checkpoint state (restorable state S4, R4) -----------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture pending + active scenarios for a checkpoint.
+
+        Pending entries keep their *relative* start offsets — the
+        runner restores the simulated clock alongside this section,
+        so elapsed time (and therefore the offsets) means the same
+        thing after resume as before. Active entries carry absolute
+        ``started_at``/``ends_at`` so an in-flight scenario ends at
+        its original time, and their D10 RNG state rides along via
+        the S1 codec. Ended scenarios appear in neither list: they
+        are finished and must not re-fire. JSON-safe as built.
+        """
+        return {
+            "pending": [
+                {
+                    "name": item.definition.name,
+                    "start_offset_minutes": item.start_offset_minutes,
+                    "duration_minutes": item.duration_minutes,
+                }
+                for item in self._pending
+            ],
+            "active": [
+                {
+                    "name": active.definition.name,
+                    "started_at": active.started_at.isoformat(),
+                    "ends_at": active.ends_at.isoformat(),
+                    "duration_minutes": active.duration_minutes,
+                    "rng_state": encode_random_state(active.rng.getstate()),
+                }
+                for active in self._active
+            ],
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace pending + active scenarios from
+        :meth:`serialize_state`.
+
+        Must *replace*, not merge: the engine a resumed process
+        constructs from the run's schedule starts with every entry
+        pending and none active, so restoring over it wholesale is
+        what prevents a duplicate ``scenario_started`` for an
+        already-started scenario (its activation is recorded here as
+        active, not pending) and a lost ending for an in-flight one.
+        Names are re-resolved against the pack registry, so an
+        unknown name fails fast exactly as at construction.
+        """
+        packs = load_scenarios()
+        pending: list[_Scheduled] = []
+        for entry in state.get("pending") or []:
+            definition = packs.get(entry["name"])
+            if definition is None:
+                raise unknown_scenario_error(entry["name"])
+            pending.append(
+                _Scheduled(
+                    definition=definition,
+                    start_offset_minutes=entry["start_offset_minutes"],
+                    duration_minutes=entry["duration_minutes"],
+                )
+            )
+        active: list[_Active] = []
+        for entry in state.get("active") or []:
+            definition = packs.get(entry["name"])
+            if definition is None:
+                raise unknown_scenario_error(entry["name"])
+            rng = self._derive_rng(entry["name"])
+            if entry.get("rng_state"):
+                rng.setstate(decode_random_state(entry["rng_state"]))
+            active.append(
+                _Active(
+                    definition=definition,
+                    started_at=datetime.fromisoformat(entry["started_at"]),
+                    ends_at=datetime.fromisoformat(entry["ends_at"]),
+                    duration_minutes=entry["duration_minutes"],
+                    rng=rng,
+                )
+            )
+        self._pending = pending
+        self._active = active

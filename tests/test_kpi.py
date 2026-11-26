@@ -294,15 +294,18 @@ def test_period_summary_recomputation(business_type):
     assert len(business) == 150
     assert [r.sequence for r in records] == list(range(len(records)))
 
-    # Exactly two summaries: day 1 closed on crossing, day 2 final partial.
-    assert len(summaries) == 2
-    closed, final = summaries
+    # Exactly one summary: day 1 closed on crossing. Day 2 is still
+    # open at run end — since restorable-state S4 (R3) the continuous
+    # runner checkpoints its open period in-progress instead of
+    # flushing a final partial at every process end, so a resumed
+    # run closes the day as one summary. The final-partial behaviour
+    # survives on the batch Runner (test_batch_runner_* below) and in
+    # the PeriodTracker unit tests.
+    assert len(summaries) == 1
+    closed = summaries[0]
     assert closed.envelope.payload["period_start"] == "2026-01-01"
     assert closed.envelope.payload["partial"] is False
     assert closed.sequence == 60  # right after day 1's 60 business events
-    assert final.envelope.payload["period_start"] == "2026-01-02"
-    assert final.envelope.payload["partial"] is True
-    assert final.sequence == records[-1].sequence
 
     for record in summaries:
         payload = record.envelope.payload
@@ -331,7 +334,11 @@ def test_saas_mrr_end_snapshot_kpi():
         r.envelope.payload for r in records
         if r.envelope.event_type == "period_summary"
     ]
-    closed, final = summaries
+    # Since S4 (R3) the continuous run emits only the closed period's
+    # summary; the open day's run-end partial is batch-runner /
+    # PeriodTracker.close_final behaviour (unit-tested above).
+    assert len(summaries) == 1
+    closed = summaries[0]
     # Closed period: MRR as of the close, i.e. after day 1's 60 events --
     # replay those events directly and compare positions.
     config = SimulatorConfig(business_type="saas", duration_seconds=3600)
@@ -343,8 +350,6 @@ def test_saas_mrr_end_snapshot_kpi():
         replay.next_event(clock)
         clock.advance()
     assert closed["kpis"]["mrr_end"] == replay.position_snapshot()["position"]["mrr"]
-    # Final partial: MRR as of run end (the runner's own simulator).
-    assert final["kpis"]["mrr_end"] == sim.position_snapshot()["position"]["mrr"]
 
 
 @pytest.mark.parametrize("business_type", ALL)

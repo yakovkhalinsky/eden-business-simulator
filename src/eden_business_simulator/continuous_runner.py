@@ -348,7 +348,22 @@ class ContinuousRunner:
                 f"reads format {SNAPSHOT_FORMAT_VERSION}. Refusing to "
                 "resume from a snapshot it cannot interpret."
             )
+        # Restore order (S1, extended by S4): clock first (scenario
+        # offsets and period boundaries are computed from it), then
+        # the framework sections — KPI tracker, scenario engine —
+        # then the simulator's own state, inside which RNG/Faker
+        # state is restored last of all (see restore_full_state).
         self._restore_clock(snapshot)
+        tracker_state = snapshot.get("tracker")
+        if tracker_state is not None and self._tracker is not None:
+            self._tracker.restore_state(tracker_state)
+        scenario_state = snapshot.get("scenario")
+        if scenario_state is not None:
+            restore_scenario = getattr(
+                self.simulator, "restore_scenario_state", None
+            )
+            if callable(restore_scenario):
+                restore_scenario(scenario_state)
         self._restore_simulator(snapshot.get("data", {}))
 
     def _should_checkpoint(self) -> bool:
@@ -387,6 +402,24 @@ class ContinuousRunner:
             },
             "data": data,
         }
+        # Restorable state (S4): the framework state the *runner*
+        # owns rides in the envelope as siblings of "data", never
+        # inside the simulator's own section. The KPI tracker's open
+        # period (R3) continues across a restart from here; the
+        # scenario engine's pending/active state (R4) is read back
+        # off the simulator, which owns the engine. Sections are
+        # simply absent when the corresponding piece is off (no
+        # tracker, no schedule), keeping those runs byte-identical
+        # to their pre-S4 checkpoints.
+        if self._tracker is not None:
+            snapshot_data["tracker"] = self._tracker.serialize_state()
+        scenario_state_fn = getattr(
+            self.simulator, "scenario_state", None
+        )
+        if callable(scenario_state_fn):
+            scenario_state = scenario_state_fn()
+            if scenario_state is not None:
+                snapshot_data["scenario"] = scenario_state
         self.storage.write_snapshot(self.SNAPSHOT_KEY, snapshot_data)
         # Phase 1: the position read API lives under its own key so the
         # "latest" snapshot/checkpoint/restore semantics are untouched.
@@ -498,12 +531,16 @@ class ContinuousRunner:
                 self._pace()
         finally:
             if self._events_emitted > 0:
-                # Final partial period summary, before the checkpoint so
-                # the checkpoint sequence covers it.
-                if self._tracker is not None:
-                    final = self._tracker.close_final()
-                    if final is not None:
-                        self._emit_period_summary(final)
+                # Restorable state (S4, R3): no final partial period
+                # summary on this path. The continuous runner is the
+                # resumable one — its open KPI period is captured
+                # in-progress by the checkpoint (see _write_checkpoint)
+                # and continues across a restart, closing later as one
+                # full-day summary. Flushing a partial at every process
+                # end would permanently split that day's KPIs, which
+                # is the defect R3 removes. Finite runs that are over
+                # for good use the batch Runner, which still emits a
+                # closing partial via PeriodTracker.close_final().
                 self._write_checkpoint()
             self._restore_signal_handlers()
             if self.output is not None:

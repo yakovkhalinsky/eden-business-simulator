@@ -194,8 +194,11 @@ exit code is 0 iff no check fails.
 
 Runs also emit `period_summary` events: one per simulated calendar
 day (revenue, order counts, rates — the KPIs declared in each
-business's definition), closed at each simulated midnight, plus a
-final `"partial": true` summary for the last open period at run end.
+business's definition), closed at each simulated midnight. Batch
+(`run`) runs add a final `"partial": true` summary for the last open
+period at run end; daemon runs instead checkpoint the open period
+in-progress, so a restarted daemon closes the day as a single
+summary rather than splitting it at the restart.
 They appear in the NDJSON stream / persisted storage alongside
 business events and can be used to grade a run objectively: every
 stream-based KPI can be recomputed from the raw events between the

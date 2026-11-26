@@ -224,6 +224,38 @@ class BusinessSimulator(ABC):
             return []
         return engine.active_scenarios()
 
+    def scenario_state(self) -> dict[str, Any] | None:
+        """Scenario engine state for a checkpoint (restorable state S4).
+
+        Framework-owned, like the RNG/Faker sections: the runner
+        stores this as a sibling of the business's own state in the
+        snapshot envelope. Returns ``None`` when the run has no
+        schedule (no engine), leaving unscheduled runs untouched.
+        """
+        engine = getattr(self, "_scenario_engine", None)
+        if engine is None:
+            return None
+        return engine.serialize_state()
+
+    def restore_scenario_state(self, state: dict[str, Any]) -> None:
+        """Restore scenario engine state from :meth:`scenario_state`.
+
+        Called by the runner *before* the business's own state (and
+        well before RNG state) — see the restore ordering documented
+        in ``ContinuousRunner._load_resume_state``. A checkpoint that
+        carries scenario state for a run whose current configuration
+        builds no engine is a configuration mismatch: fail loudly
+        rather than silently dropping an in-flight scenario.
+        """
+        engine = getattr(self, "_scenario_engine", None)
+        if engine is None:
+            raise ValueError(
+                f"Checkpoint for {self.business_type!r} carries "
+                "scenario state, but this run's configuration has no "
+                "scenario schedule to restore it into."
+            )
+        engine.restore_state(state)
+
     @abstractmethod
     def initialize(self, seed: int) -> None:
         """Seed all randomness and create the initial deterministic state."""

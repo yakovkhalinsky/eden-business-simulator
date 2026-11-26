@@ -185,9 +185,12 @@ business event to a `PeriodTracker` (`framework/kpi.py`) and emit a
 `period_summary` event at each simulated calendar-day boundary (the
 summary is emitted *before* the first event of the new day, so
 snapshot KPIs read the position exactly as the closed period ended),
-plus a final `"partial": true` summary at run end for the last open
-period if it contains at least one business event. Closed periods
-carry `"partial": false`. Like snapshot events, summaries get a
+plus — on the batch runner — a final `"partial": true` summary at
+run end for the last open period if it contains at least one
+business event. Closed periods carry `"partial": false`. The
+continuous (daemon) runner emits no final partial: since
+restorable-state S4 its open period is checkpointed in-progress and
+continues across a restart, closing later as one full-day summary. Like snapshot events, summaries get a
 normal sequence but do not count toward `max_events`.
 `SimulatorConfig.period_summaries_enabled` (default true) turns this
 off; simulators without KPI definitions are unaffected. Cafe's

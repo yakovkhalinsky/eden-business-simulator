@@ -133,6 +133,11 @@ events exactly as they do without scenarios.
   the eligible-weight tests show, but a standard cafe shift still
   clocks its opening crew in. Modelling absence inside the setup
   queue belongs with the state-mutating scenarios above.
-- A daemon resumed from a checkpoint restarts its scenario schedule
-  from the resume point (offsets are relative to run start); markers
-  for already-started packs are not replayed.
+- Scenario state is checkpointed (restorable-state S4): a daemon
+  resumed from a checkpoint keeps its pending and active scenarios —
+  an in-flight pack does not re-fire `scenario_started` and still
+  ends at its original `ends_at`; a pending pack fires at its
+  original offset (offsets are relative to run start, and the
+  simulated clock is restored alongside). Checkpoints written before
+  S4 carry no scenario section, so a resume from one starts the
+  schedule fresh, as before.

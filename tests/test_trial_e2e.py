@@ -149,13 +149,17 @@ def test_advisor_trial_saas(tmp_path):
         ]
     finally:
         adapter.close()
-    # One summary per simulated day touched by the run.
+    # One summary per simulated day *closed* by the run. Jan 4 is
+    # still open at run end: since restorable-state S4 (R3) the
+    # continuous runner checkpoints its open period instead of
+    # flushing a final partial, so the last touched day summarises
+    # only when a later day closes it (or a resume continues it).
     assert {s.payload["period_start"] for s in summaries} == {
         "2026-01-01",
         "2026-01-02",
         "2026-01-03",
-        "2026-01-04",
     }
+    assert all(s.payload["partial"] is False for s in summaries)
 
     report = verify_run(
         "sqlite", db_path, stream_id, check_determinism_flag=True
@@ -234,6 +238,14 @@ def test_operator_trial_gym(tmp_path):
             checkpoint_interval_events=10,
             checkpoint_interval_seconds=3600.0,
             scenario_schedule=scenario,
+            # No seeded members: every membership in this trial is
+            # created by a stream event, so the verifier's gym
+            # position recomputation (a pure stream tally) is exact.
+            # (Seeded members exist in the position but not the
+            # stream; the tally only coincides with the position in
+            # churn-heavy regimes where every seeded member happens
+            # to be touched by a status event.)
+            initial_state_overrides={"initial_members": 0},
         )
 
     # --- Phase 1 of the trial: the daemon runs and builds state.
@@ -242,7 +254,17 @@ def test_operator_trial_gym(tmp_path):
     config1 = _config(max_events=40)
     sim.configure(config1)
     sim.initialize(42)
-    ContinuousRunner(config1, sim, storage, realtime=False).run()
+    runner1 = ContinuousRunner(config1, sim, storage, realtime=False)
+    # Pin the clock to one simulated hour per event so the run crosses
+    # a calendar-day boundary and closes a real period summary (since
+    # S4/R3 the continuous runner no longer flushes a partial summary
+    # at process end — the open period rides in the checkpoint).
+    # Phase 2's runner resumes this clock from the checkpoint.
+    runner1.clock = Clock(
+        start_time=datetime(2026, 1, 1, 8, 0, tzinfo=UTC),
+        tick_seconds=3600.0,
+    )
+    runner1.run()
 
     # An operator reads current state before acting: pick a member
     # whose membership is active right now.

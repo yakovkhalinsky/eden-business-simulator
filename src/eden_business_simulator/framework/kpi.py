@@ -93,6 +93,56 @@ class PeriodTracker:
     def has_events(self) -> bool:
         return self._event_total > 0
 
+    # -- checkpoint state (restorable state S4, R3) -----------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture the in-progress period for a checkpoint.
+
+        Everything the tracker accumulates is plain data (the period
+        date as ISO), so the section is JSON-safe as built. A resumed
+        tracker restored from this continues the *same* period: the
+        day that was open at checkpoint time closes once, as one
+        summary, instead of being split by the restart.
+        """
+        return {
+            "period_date": (
+                self._period_date.isoformat() if self._period_date else None
+            ),
+            "event_counts": dict(self._event_counts),
+            "filtered_counts": dict(self._filtered_counts),
+            "sums": dict(self._sums),
+            "sequence_start": self._sequence_start,
+            "sequence_end": self._sequence_end,
+            "event_total": self._event_total,
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace the in-progress period from :meth:`serialize_state`.
+
+        Must *replace*, not merge: the runner builds a fresh tracker
+        for the resumed process, so anything left over from
+        construction would double-count the period.
+        """
+        period_date = state.get("period_date")
+        self._period_date = (
+            date.fromisoformat(period_date) if period_date else None
+        )
+        self._event_counts = {
+            str(key): int(value)
+            for key, value in (state.get("event_counts") or {}).items()
+        }
+        self._filtered_counts = {
+            str(key): int(value)
+            for key, value in (state.get("filtered_counts") or {}).items()
+        }
+        self._sums = {
+            str(key): float(value)
+            for key, value in (state.get("sums") or {}).items()
+        }
+        self._sequence_start = state.get("sequence_start")
+        self._sequence_end = state.get("sequence_end")
+        self._event_total = int(state.get("event_total") or 0)
+
     def observe(
         self,
         event_type: str,

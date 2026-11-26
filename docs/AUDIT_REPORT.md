@@ -82,12 +82,21 @@ and is described in detail in the phase notes across `docs/`
 
 ### Known limitations (honest list)
 
-- **Business state restore on resume is summary-based.** Commands and
-  applied action ids persist across a daemon restart, but a resumed
-  daemon's business *state* restarts from `initialize()` — the
-  checkpoint snapshot is a summary, not a full restorable state. A
-  long-running Operator trial that restarts the daemon mid-shift will
-  see fresh stock/memberships with an unbroken event sequence.
+- **Business state restore on resume was summary-based at Phase 8;
+  the restorable-state project (S1–S4) has since landed.** Checkpoints
+  now carry full business state, RNG/Faker/IdGenerator state and the
+  simulated clock, and a resumed daemon continues the exact stream
+  an uninterrupted run would have produced (proven per business by
+  split-run tests). S4 extended this to the framework pieces: the
+  KPI tracker's open period and the scenario engine's pending/active
+  state ride in the same envelope, so a restart mid-day no longer
+  splits that day's period summary, and an in-flight scenario ends
+  at its original time without a duplicate `scenario_started`. One
+  behaviour changed with it: the continuous runner no longer emits a
+  final `"partial": true` period summary at process end (the batch
+  runner still does) — a daemon's last, still-open day is summarised
+  when a later day closes it. Pre-S1 summary-only checkpoints still
+  resume the old way (state restarts), with a loud warning.
 - **Scenario multipliers key on event types only.** Payment failures
   that are payload outcomes rather than event types (ecommerce
   `payment_processed`, clinic `claim_adjudicated`) are not covered by
