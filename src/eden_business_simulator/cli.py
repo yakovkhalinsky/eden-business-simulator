@@ -560,8 +560,10 @@ def verify(
 
     Recomputes period-summary KPIs and stream-derivable position
     figures from the raw stored events and compares them against what
-    the run stored about itself. Prints one PASS/FAIL/SKIP line per
-    check and exits non-zero if any check fails.
+    the run stored about itself, and restores the run's final
+    checkpoint to prove it is a genuine continuation point
+    (resume_integrity). Prints one PASS/FAIL/SKIP line per check and
+    exits non-zero if any check fails.
     """
     from eden_business_simulator.framework.verify import verify_run
 

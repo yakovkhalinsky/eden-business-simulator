@@ -181,9 +181,16 @@ Options:
   from storage (action audits, scenario markers, a cafe
   `shift_closed`) report this check as `SKIP` with the reason named.
 
+The always-on `resume_integrity` check restores the run's final
+checkpoint into a fresh simulator and proves it reproduces the
+stored final position (storage keeps only the latest snapshot, so
+earlier checkpoints cannot be proven after the fact — the check
+states this limit in its own output; legacy summary-only snapshots
+report `SKIP` with the reason).
+
 Output is one `PASS`/`FAIL`/`SKIP` line per check (`sequence_integrity`,
-`period_summaries`, `position`, `action_audit`, plus `determinism`
-when requested), naming the period, field or sequence involved in any
+`period_summaries`, `position`, `action_audit`, `resume_integrity`,
+plus `determinism` when requested), naming the period, field or sequence involved in any
 failure, followed by a `VERDICT:` line. Position fields that the event
 stream does not determine (setup state from `initialize()`, tallies
 whose transitions are not all named in the stream) are printed as

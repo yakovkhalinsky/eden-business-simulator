@@ -25,6 +25,17 @@ itself. It never trusts stored aggregates:
   runs containing action audits, scenario markers or a cafe
   ``shift_closed`` are SKIPped with the reason named, because their
   inputs are not recoverable from stored metadata.
+* Resume integrity (restorable state S5): the run's *final* stored
+  checkpoint is restored into a fresh simulator — in the runner's own
+  restore order (clock, KPI tracker, scenario engine, then business
+  state with RNG/Faker last) — and the restored simulator must
+  re-serialise to the identical full state, reproduce the stored
+  final position exactly, and generate continuation events without
+  error. Storage retains only the latest snapshot, so this proves the
+  final checkpoint is a genuine continuation point; it does **not**
+  prove anything about earlier, overwritten checkpoints, nor that
+  the stored stream was in fact produced by resuming (the stream
+  checks above cover the stream's own consistency).
 
 Every check returns a :class:`CheckResult` (``PASS`` / ``FAIL`` /
 ``SKIP``) whose detail names the period, field or sequence involved in
@@ -422,21 +433,14 @@ def _recompute_ecommerce(events):
 
 def _recompute_gym(events):
     by = _by_type(events)
-    members = _tally(
-        events,
-        "membership_id",
-        {
-            "membership_enrolled": "active",
-            "membership_frozen": "frozen",
-            "membership_unfrozen": "active",
-            "membership_cancelled": "cancelled",
-        },
-    )
+    # members_by_status / active_count / frozen_count / cancelled_count
+    # are deliberately NOT recomputed here (restorable state S5): the
+    # gym seeds its member pool at initialize() with no stream events,
+    # so a stream tally only coincides with the position when every
+    # seeded member happens to be touched by a status event. Those
+    # fields are classified unverifiable-by-design (see
+    # _UNVERIFIABLE_REASONS), like class_count/booking_count.
     return {
-        "members_by_status": members,
-        "active_count": members.get("active", 0),
-        "frozen_count": members.get("frozen", 0),
-        "cancelled_count": members.get("cancelled", 0),
         "failed_payments_count": len(by.get("payment_failed", [])),
         "failed_payments_amount": _round_money(
             sum(p["amount"] for p in by.get("payment_failed", []))
@@ -551,6 +555,10 @@ _UNVERIFIABLE_REASONS = {
     ("clinic", "patient_count"): "patient pool is created at initialize(), not by events",
     ("clinic", "provider_count"): "provider pool is created at initialize(), not by events",
     ("ecommerce", "inventory"): "initial stock is assigned at initialize(); only adjustments carry absolute levels",
+    ("gym", "members_by_status"): "member pool seeded at initialize before the stream starts",
+    ("gym", "active_count"): "member pool seeded at initialize before the stream starts",
+    ("gym", "frozen_count"): "member pool seeded at initialize before the stream starts",
+    ("gym", "cancelled_count"): "member pool seeded at initialize before the stream starts",
     ("gym", "class_count"): "classes are seeded at initialize() as well as scheduled by events",
     ("gym", "booking_count"): "bookings are seeded at initialize() as well as made by events",
     ("gym", "at_risk_count"): "derived from internal churn-risk scoring, not from events",
@@ -845,6 +853,278 @@ def check_determinism(
 
 
 # ----------------------------------------------------------------------
+# Check 6: resume integrity — the final checkpoint as a continuation
+# point (restorable state S5)
+# ----------------------------------------------------------------------
+
+#: How many events the restored simulator must generate, without
+#: error, as a continuation smoke test. This proves the restored
+#: state is *live* (generators run against it), not that the
+#: continuation equals any particular stream — the stored run's own
+#: continuation past its final checkpoint does not exist to diff
+#: against.
+RESUME_CONTINUATION_EVENTS = 3
+
+
+def _first_difference(left: Any, right: Any, path: str = "") -> str | None:
+    """Describe the first difference between two plain-data trees."""
+    if isinstance(left, dict) and isinstance(right, dict):
+        for key in sorted(set(left) | set(right), key=str):
+            where = f"{path}.{key}" if path else str(key)
+            if key not in left:
+                return f"{where}: only in restored"
+            if key not in right:
+                return f"{where}: only in stored"
+            found = _first_difference(left[key], right[key], where)
+            if found is not None:
+                return found
+        return None
+    if left != right:
+        return f"{path or '<root>'}: stored={left!r} restored={right!r}"
+    return None
+
+
+def check_resume_integrity(
+    events: list[dict[str, Any]],
+    business_type: str | None,
+    snapshot: dict[str, Any] | None,
+    checkpoint: dict[str, Any] | None,
+    stored_position: dict[str, Any] | None,
+) -> CheckResult:
+    """Restore the final stored checkpoint and prove it reproduces.
+
+    Storage keeps only the *latest* snapshot per stream, so the only
+    checkpoint whose integrity can be proven after the fact is the
+    final one. This check restores it into a fresh simulator in the
+    runner's restore order and requires: the full state to
+    re-serialise identically (restore is lossless), the KPI tracker
+    and scenario sections (when present) to round-trip, the restored
+    position to equal the position stored at the same checkpoint,
+    and a short continuation to generate events without error.
+
+    What this does NOT prove, by construction: that earlier
+    (overwritten) checkpoints were valid continuation points, and
+    that the stored stream was actually produced by resuming from
+    this checkpoint — the stream-oriented checks cover the stream
+    itself; this check covers the checkpoint artifact.
+    """
+    name = "resume_integrity"
+    if snapshot is None:
+        return CheckResult(
+            name,
+            SKIP,
+            "no checkpoint snapshot stored for this run; there is no "
+            "checkpoint artifact to restore",
+        )
+    from eden_business_simulator.framework.state_codec import (
+        SNAPSHOT_FORMAT_VERSION,
+    )
+
+    snapshot_format = snapshot.get("snapshot_format")
+    if snapshot_format is None:
+        return CheckResult(
+            name,
+            SKIP,
+            "stored snapshot is a legacy summary-only snapshot "
+            "(pre-restorable-state, R2): it carries no full state, so "
+            "resume integrity cannot be proven from stored artifacts",
+        )
+    if snapshot_format != SNAPSHOT_FORMAT_VERSION:
+        return CheckResult(
+            name,
+            FAIL,
+            f"stored snapshot_format {snapshot_format!r} is not "
+            f"readable by this build (reads {SNAPSHOT_FORMAT_VERSION}); "
+            "the runner would refuse to resume from this checkpoint",
+        )
+    data = snapshot.get("data") or {}
+    full_state = data.get("full_state")
+    if not isinstance(full_state, dict):
+        return CheckResult(
+            name,
+            SKIP,
+            "snapshot carries no full_state section (the business did "
+            "not opt into full-state snapshots); resume integrity "
+            "cannot be proven from stored artifacts",
+        )
+    if stored_position is None:
+        return CheckResult(
+            name,
+            SKIP,
+            "no stored position snapshot to compare the restored "
+            "position against",
+        )
+    checkpoint_sequence = (checkpoint or {}).get("last_sequence")
+    position_sequence = stored_position.get("sequence")
+    if checkpoint_sequence is None or position_sequence != checkpoint_sequence:
+        return CheckResult(
+            name,
+            SKIP,
+            f"stored position is as of sequence {position_sequence} "
+            f"but the final checkpoint is at sequence "
+            f"{checkpoint_sequence}; the two were not written at the "
+            "same checkpoint, so a restored position cannot be "
+            "compared like-for-like",
+        )
+
+    # Deferred imports: restoring needs the full simulator stack.
+    from eden_business_simulator.businesses import load_simulator
+    from eden_business_simulator.config import SimulatorConfig
+    from eden_business_simulator.framework.kpi import tracker_for
+    from eden_business_simulator.framework.scenario import (
+        ScenarioScheduleEntry,
+    )
+    from eden_business_simulator.models import Clock
+
+    seed = snapshot.get("seed")
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        seed = 0  # restore overwrites RNG state wholesale regardless
+
+    # A simulator only builds a scenario engine when its config has a
+    # schedule; rebuild one from the names the checkpoint itself
+    # records (restore_state replaces pending/active wholesale, so
+    # the constructed engine's initial pending list is immaterial).
+    scenario_section = snapshot.get("scenario")
+    schedule: list[ScenarioScheduleEntry] = []
+    if isinstance(scenario_section, dict):
+        for entry in scenario_section.get("pending") or []:
+            schedule.append(
+                ScenarioScheduleEntry(
+                    name=entry["name"],
+                    start_offset_minutes=entry["start_offset_minutes"],
+                    duration_minutes=entry["duration_minutes"],
+                )
+            )
+        for entry in scenario_section.get("active") or []:
+            schedule.append(
+                ScenarioScheduleEntry(
+                    name=entry["name"],
+                    start_offset_minutes=0,
+                    duration_minutes=entry["duration_minutes"],
+                )
+            )
+
+    config = SimulatorConfig(
+        business_type=business_type,
+        duration_seconds=1e12,
+        seed=seed,
+        stream_id="verify_resume",
+        storage_backend="memory",
+        scenario_schedule=schedule,
+    )
+    simulator = load_simulator(business_type)
+    simulator.configure(config)
+    simulator.initialize(seed)
+
+    clock_section = snapshot.get("clock") or {}
+    if clock_section:
+        clock = Clock(
+            start_time=datetime.fromisoformat(clock_section["start_time"]),
+            tick_seconds=float(clock_section["tick_seconds"]),
+        )
+        clock.now = datetime.fromisoformat(clock_section["now"])
+    elif events:
+        clock = Clock(start_time=events[-1]["timestamp"], tick_seconds=60.0)
+    else:
+        return CheckResult(name, SKIP, "no events and no clock state stored")
+
+    try:
+        # The runner's restore order: tracker, scenario, then the
+        # business state (inside which RNG/Faker restore last).
+        tracker_section = snapshot.get("tracker")
+        tracker = None
+        if tracker_section is not None:
+            tracker = tracker_for(config, simulator)
+            if tracker is not None:
+                tracker.restore_state(tracker_section)
+        if scenario_section and schedule:
+            simulator.restore_scenario_state(scenario_section)
+        simulator.restore_snapshot(data)
+    except Exception as exc:  # a checkpoint that cannot be restored
+        return CheckResult(
+            name,
+            FAIL,
+            f"restoring the final checkpoint (sequence "
+            f"{checkpoint_sequence}) raised {type(exc).__name__}: {exc}",
+        )
+
+    if tracker is not None and tracker.serialize_state() != tracker_section:
+        difference = _first_difference(
+            tracker_section, tracker.serialize_state(), "tracker"
+        )
+        return CheckResult(
+            name,
+            FAIL,
+            f"KPI tracker state did not round-trip through restore: "
+            f"{difference}",
+        )
+    if scenario_section and schedule:
+        restored_scenario = simulator.scenario_state()
+        if restored_scenario != scenario_section:
+            difference = _first_difference(
+                scenario_section, restored_scenario, "scenario"
+            )
+            return CheckResult(
+                name,
+                FAIL,
+                f"scenario state did not round-trip through restore: "
+                f"{difference}",
+            )
+    reserialised = simulator.full_state_snapshot()
+    if reserialised != full_state:
+        difference = _first_difference(full_state, reserialised, "full_state")
+        return CheckResult(
+            name,
+            FAIL,
+            f"restored full state does not re-serialise to the stored "
+            f"full_state: {difference}",
+        )
+    restored_position = (simulator.position_snapshot() or {}).get("position")
+    expected_position = stored_position.get("position")
+    if restored_position != expected_position:
+        difference = _first_difference(
+            expected_position, restored_position, "position"
+        )
+        return CheckResult(
+            name,
+            FAIL,
+            f"position restored from the final checkpoint differs "
+            f"from the position stored at sequence "
+            f"{checkpoint_sequence}: {difference}",
+        )
+    try:
+        for _ in range(RESUME_CONTINUATION_EVENTS):
+            simulator.scenario_transitions(clock)
+            event = simulator.next_event(clock)
+            if not isinstance(event, dict) or "event_type" not in event:
+                return CheckResult(
+                    name,
+                    FAIL,
+                    "continuation from the restored checkpoint "
+                    f"produced a malformed event: {event!r}",
+                )
+            clock.advance()
+    except Exception as exc:
+        return CheckResult(
+            name,
+            FAIL,
+            f"continuation from the restored checkpoint raised "
+            f"{type(exc).__name__}: {exc}",
+        )
+    return CheckResult(
+        name,
+        PASS,
+        f"final checkpoint (sequence {checkpoint_sequence}) restored "
+        "into a fresh simulator: full state re-serialises identically, "
+        "position matches the stored final position, and "
+        f"{RESUME_CONTINUATION_EVENTS} continuation events generated "
+        "without error. Proves the final checkpoint is a genuine "
+        "continuation point; earlier checkpoints are overwritten in "
+        "storage and cannot be proven after the fact",
+    )
+
+
+# ----------------------------------------------------------------------
 # Loading + top-level entry points
 # ----------------------------------------------------------------------
 
@@ -878,6 +1158,8 @@ def verify_events(
     seed: int | None = None,
     check_determinism_flag: bool = False,
     stream_id: str = "",
+    snapshot: dict[str, Any] | None = None,
+    checkpoint: dict[str, Any] | None = None,
 ) -> VerifyReport:
     """Run the stream checks over already-loaded event dicts."""
     report = VerifyReport(
@@ -889,6 +1171,15 @@ def verify_events(
         check_position(events, definition.business_type, stored_position, report)
     )
     report.checks.append(check_action_audit(events, definition))
+    report.checks.append(
+        check_resume_integrity(
+            events,
+            definition.business_type,
+            snapshot,
+            checkpoint,
+            stored_position,
+        )
+    )
     if check_determinism_flag:
         report.checks.append(
             check_determinism(events, definition.business_type, seed)
@@ -940,6 +1231,8 @@ def verify_run(
             seed=seed,
             check_determinism_flag=check_determinism_flag,
             stream_id=stream_id,
+            snapshot=latest,
+            checkpoint=adapter.read_checkpoint(),
         )
     finally:
         adapter.close()

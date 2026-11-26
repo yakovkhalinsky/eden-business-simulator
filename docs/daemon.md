@@ -168,15 +168,51 @@ a restarted daemon later receives another command reusing
 effect — no double stock, no double charge. A caller that wants a
 genuinely new operation uses a new `action_id`.
 
+## Restart and resume
+
+A daemon can be stopped (SIGTERM/SIGINT writes a final checkpoint)
+and restarted against the same `--stream-id` and storage, and the
+business *continues* — this is the restorable-state project
+(S1–S4), and it is stronger than the idempotency guarantee above:
+
+- **Full business state** — every checkpoint carries the business's
+  complete state (entities, counters, in-flight work), the
+  RNG/Faker/IdGenerator state, and the **simulated clock**, so the
+  resumed stream is identical to the one an uninterrupted process
+  would have produced: same events, same position, same sim time
+  (dayparts and period boundaries do not restart).
+- **The KPI tracker's open period** rides in the checkpoint too: a
+  restart mid-day does not split that day's `period_summary` — the
+  day closes once, as one summary. Operator note (R3): the
+  continuous runner therefore no longer emits a final
+  `"partial": true` summary when a process stops; the still-open
+  day is summarised when a later day closes it (or a resume
+  continues it). If you stop a daemon for good, its last partial
+  day has no summary — read `eden position` for where it stands.
+- **Scenario state** — pending scenarios still fire at their
+  original offsets; an in-flight scenario ends at its original time
+  and does not re-emit `scenario_started`.
+- **Legacy checkpoints (R2)** — a stream whose last checkpoint
+  predates full-state snapshots (summary-only) still resumes the
+  old way: the sequence continues and applied action ids are still
+  seeded (no double-apply), but business state and the sim clock
+  restart. The daemon says so loudly at startup — a
+  `resume_warnings` entry, a log warning and a `UserWarning` naming
+  the stream — and the next checkpoint rewrites the snapshot in the
+  current format. A snapshot whose format version this build cannot
+  read is refused outright, never misread.
+- Verify it afterwards: `eden verify`'s `resume_integrity` check
+  restores the stored run's final checkpoint into a fresh simulator
+  and proves it reproduces the stored final position (storage keeps
+  only the latest snapshot, so earlier checkpoints cannot be proven
+  after the fact — the check says exactly this).
+
 ## Honest limitations
 
-- **Business state restore on resume is still summary-based.**
-  Commands and idempotency persist across restarts; the business's
-  *state* does not fully. Most simulators' `restore()` is a no-op and
-  `state_snapshot()` is a summary, so a resumed daemon's business
-  position reflects its restarted state, not a true continuation of
-  the pre-stop business. This phase does not change that — it is
-  carried work, flagged since Phase 1.
+- **Resume is genuine, but checkpoints are full-state snapshots**:
+  they grow with the business's entity lists. Accepted for trial
+  scale (R5); on very long runs the snapshot size in storage is the
+  thing to watch.
 - The `memory` backend is per-process: a CLI submission and a daemon
   must share one process to see each other's commands. Use SQLite or
   NDJSON for real operation.

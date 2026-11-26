@@ -69,7 +69,7 @@ The daemon writes periodic checkpoints and a final checkpoint on shutdown so it 
 
 ## Run the Beth/Aleph trial
 
-Eden is the trial world for agent-managed businesses: Eden plays the business, agents manage it, and the operator layer reads position, submits commands, and verifies the run afterwards. The four steps, in order:
+Eden is the trial world for agent-managed businesses: Eden plays the business, agents manage it, and the operator layer reads position, submits commands, and verifies the run afterwards. The steps, in order:
 
 ```bash
 # 1. Start a daemon (the business, running live and persisting)
@@ -87,8 +87,16 @@ uv run eden-business-simulator command gym \
   --params '{"member_id": "member_0007"}' --requested-by aleph-trial \
   --storage sqlite --storage-uri gym_trial.db
 
-# 4. Verify the stored run afterwards (independent recomputation of
-#    KPIs and position from the raw stream; exit code reflects drift)
+# 4. Restart the daemon (in the step-1 terminal, stop it with
+#    Ctrl-C, then start it again with the same command): it resumes
+#    from its final checkpoint and the business continues — full
+#    state, simulated clock, open KPI period and any in-flight
+#    scenario — exactly as if it had never stopped. Applied command
+#    ids are still honoured, so nothing double-applies.
+
+# 5. Verify the stored run afterwards (independent recomputation of
+#    KPIs and position from the raw stream, plus a resume-integrity
+#    proof of the final checkpoint; exit code reflects drift)
 uv run eden-business-simulator verify \
   --stream-id gym_trial --storage sqlite --storage-uri gym_trial.db \
   --check-determinism

@@ -80,23 +80,79 @@ and is described in detail in the phase notes across `docs/`
 - **Delivery hardening**: HTTP consumers get auth, bounded retries
   and dead-letter capture; delivery failure never stops a run.
 
+## Restorable-state addendum (S1–S5)
+
+The Phase 8 programme closed with one carried limitation: a resumed
+daemon restarted its business state, because checkpoints held only
+summaries. The restorable-state project removed it, in five slices,
+each proven by the split-run pattern — run N events, checkpoint,
+resume into a fresh process/simulator, run M more; the split stream
+and position must equal an uninterrupted run's exactly.
+
+- **S1 — Framework machinery.** A versioned full-state section in the
+  checkpoint envelope (`snapshot_format` 2): each business's complete
+  state with datetimes explicitly encoded, plus the framework-owned
+  RNG state, Faker state and IdGenerator counters — raw JSON (R6;
+  pickle was rejected outright). The simulated clock rides in the
+  envelope too. Legacy summary-only snapshots resume the old way
+  (sequence continues, business state restarts) but now say so with
+  a loud warning at startup (R2); an unrecognised format version is
+  refused, never misread.
+- **S2 — Trades + cafe.** Full-state snapshot/restore for the
+  field-service base (hence electrician and plumber) and the cafe —
+  the state-heaviest business, including its transition-model
+  internals, inventory ledger, pending setup queue and
+  action-mutated menu prices.
+- **S3 — The remaining five.** Clinic, ecommerce, gym, logistics and
+  SaaS, including action-mutated plan prices (gym/SaaS `_PLANS` are
+  captured, not rebuilt from the definition) and the real datetimes
+  stored inside entities. Gym's pre-existing vestigial `restore()`
+  (it restored a key its snapshot never emitted) was replaced by the
+  real thing.
+- **S4 — Framework state resume (R3/R4).** The KPI tracker's open
+  period and the scenario engine's pending/active state ride in the
+  same envelope: a restart mid-day no longer splits that day's
+  period summary, and an in-flight scenario ends at its original
+  time without a duplicate `scenario_started`. Trade-off (R3): the
+  continuous runner no longer emits a final `"partial": true` period
+  summary at process end — the open period is checkpointed instead,
+  and summarised when a later day closes it (or a resume continues
+  it). The batch runner still flushes a final partial summary.
+- **S5 — Verifier extension.** `eden verify` gained a
+  `resume_integrity` check: the stored run's final checkpoint is
+  restored into a fresh simulator (in the runner's restore order)
+  and must re-serialise to the identical full state, reproduce the
+  stored final position exactly, round-trip its tracker/scenario
+  sections, and generate continuation events without error. Storage
+  retains only the latest snapshot, so the check proves the *final*
+  checkpoint is a genuine continuation point — it does not, and
+  cannot, prove anything about earlier overwritten checkpoints, nor
+  that the stored stream was in fact produced by resuming; the
+  stream checks cover the stream itself. S5 also reclassified the
+  gym member tallies (`members_by_status`, `active_count`,
+  `frozen_count`, `cancelled_count`) as unverifiable-by-design: the
+  member pool is seeded at `initialize()` before the stream starts,
+  so a stream tally only coincides with the position when every
+  seeded member happens to be touched by a status event.
+
+### Guarantee added by the restorable-state project
+
+- **Genuine resume**: for all nine businesses, a split run (stop,
+  checkpoint, resume in a fresh process) is stream- and
+  position-identical to an uninterrupted run — business state,
+  RNG/Faker/IdGenerator state, simulated clock, the KPI tracker's
+  open period and the scenario engine included. The final checkpoint
+  of a stored run is independently provable as a continuation point
+  via `eden verify`'s `resume_integrity` check.
+
 ### Known limitations (honest list)
 
-- **Business state restore on resume was summary-based at Phase 8;
-  the restorable-state project (S1–S4) has since landed.** Checkpoints
-  now carry full business state, RNG/Faker/IdGenerator state and the
-  simulated clock, and a resumed daemon continues the exact stream
-  an uninterrupted run would have produced (proven per business by
-  split-run tests). S4 extended this to the framework pieces: the
-  KPI tracker's open period and the scenario engine's pending/active
-  state ride in the same envelope, so a restart mid-day no longer
-  splits that day's period summary, and an in-flight scenario ends
-  at its original time without a duplicate `scenario_started`. One
-  behaviour changed with it: the continuous runner no longer emits a
-  final `"partial": true` period summary at process end (the batch
-  runner still does) — a daemon's last, still-open day is summarised
-  when a later day closes it. Pre-S1 summary-only checkpoints still
-  resume the old way (state restarts), with a loud warning.
+- **State restore on resume is no longer a limitation** — see the
+  restorable-state addendum above. What remains resume-adjacent:
+  pre-S1 legacy snapshots still resume summary-style (with the R2
+  warning), and checkpoint snapshots grow with the business's entity
+  lists (accepted for trial scale, R5; snapshot size is the thing to
+  watch on very long runs).
 - **Scenario multipliers key on event types only.** Payment failures
   that are payload outcomes rather than event types (ecommerce
   `payment_processed`, clinic `claim_adjudicated`) are not covered by
@@ -107,13 +163,15 @@ and is described in detail in the phase notes across `docs/`
   bite the cafe's first shift. State-mutating scenarios are future
   work.
 - **Some position fields are not stream-derivable.** Setup state
-  created at `initialize()` (gym classes/bookings, SaaS seed accounts
-  and subscriptions/MRR, ecommerce opening stock, clinic patient and
-  provider pools, trades technician counts) and tallies whose
-  transitions are not all named in the stream (cafe order/ticket
-  status, logistics shipment retention) cannot be recomputed by the
-  verifier. `eden verify` lists them as `UNVERIFIABLE` with reasons
-  rather than passing them silently.
+  created at `initialize()` (gym classes/bookings **and the member
+  pool tallies** — `members_by_status`, `active_count`,
+  `frozen_count`, `cancelled_count`, reclassified in S5 — SaaS seed
+  accounts and subscriptions/MRR, ecommerce opening stock, clinic
+  patient and provider pools, trades technician counts) and tallies
+  whose transitions are not all named in the stream (cafe
+  order/ticket status, logistics shipment retention) cannot be
+  recomputed by the verifier. `eden verify` lists them as
+  `UNVERIFIABLE` with reasons rather than passing them silently.
 - **Snapshot/computed KPIs are not stream-recomputable** (e.g. SaaS
   `mrr_end`): they record live position at period close by design and
   are reported as such by the verifier.
@@ -121,7 +179,9 @@ and is described in detail in the phase notes across `docs/`
   `SimulatorConfig` is not stored, so `--check-determinism` SKIPs —
   with the reason — runs containing action audits, scenario markers
   or a cafe `shift_closed`, whose inputs cannot be recovered from
-  stored metadata.
+  stored metadata. (The S5 `resume_integrity` check covers those
+  runs' *checkpoints* instead — a different, weaker guarantee, and
+  it says so in its own output.)
 - **The memory storage backend is per-process**: its runs, commands
   and positions are not addressable after the process exits, and it
   cannot be verified.

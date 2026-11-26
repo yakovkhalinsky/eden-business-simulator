@@ -238,14 +238,16 @@ def test_operator_trial_gym(tmp_path):
             checkpoint_interval_events=10,
             checkpoint_interval_seconds=3600.0,
             scenario_schedule=scenario,
-            # No seeded members: every membership in this trial is
-            # created by a stream event, so the verifier's gym
-            # position recomputation (a pure stream tally) is exact.
-            # (Seeded members exist in the position but not the
-            # stream; the tally only coincides with the position in
-            # churn-heavy regimes where every seeded member happens
-            # to be touched by a status event.)
-            initial_state_overrides={"initial_members": 0},
+            # The seeded member pool is left in place (restorable
+            # state S5): the verifier no longer treats the gym member
+            # tallies as stream-derivable — members_by_status /
+            # active_count / frozen_count / cancelled_count are
+            # classified unverifiable-by-design ("member pool seeded
+            # at initialize before the stream starts"), so the trial
+            # no longer needs initial_members pinned to 0 for its
+            # position check to be honest. The pin served no other
+            # purpose: the commands below act on whatever member is
+            # active, seeded or enrolled.
         )
 
     # --- Phase 1 of the trial: the daemon runs and builds state.
@@ -347,6 +349,21 @@ def test_operator_trial_gym(tmp_path):
     assert report.check("action_audit").status == "PASS"
     assert report.check("position").status == "PASS"
     assert report.check("period_summaries").status == "PASS"
+    # Restorable state S5: the gym member tallies are reported
+    # unverifiable (seeded pool), not silently passed.
+    for field_name in (
+        "members_by_status",
+        "active_count",
+        "frozen_count",
+        "cancelled_count",
+    ):
+        assert field_name in report.unverifiable_fields
+    # And the resumed run's final checkpoint proves itself as a
+    # continuation point — the check that covers resumed/scenario
+    # runs, which determinism cannot.
+    assert report.check("resume_integrity").status == "PASS", (
+        report.check("resume_integrity").detail
+    )
     determinism = report.check("determinism")
     assert determinism.status == "SKIP"
     assert "not recoverable" in determinism.detail
