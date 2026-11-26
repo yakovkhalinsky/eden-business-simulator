@@ -14,6 +14,7 @@ from eden_business_simulator.businesses import list_business_types, load_simulat
 from eden_business_simulator.config import SimulatorConfig
 from eden_business_simulator.continuous_runner import ContinuousRunner
 from eden_business_simulator.output.http import HttpOutputAdapter
+from eden_business_simulator.output.http_batch import HttpBatchOutputAdapter
 from eden_business_simulator.output.ndjson import NDJsonOutputAdapter
 from eden_business_simulator.runner import Runner
 from eden_business_simulator.storage import load_storage_adapter
@@ -28,7 +29,19 @@ def _build_adapter(config: SimulatorConfig):
     if config.output_mode == "ndjson":
         return NDJsonOutputAdapter()
     if config.output_mode == "http":
-        return HttpOutputAdapter(config.webhook_url)
+        return HttpOutputAdapter(
+            config.webhook_url,
+            max_retries=config.output_max_retries,
+            dead_letter_path=config.dead_letter_path,
+        )
+    if config.output_mode == "http-batch":
+        return HttpBatchOutputAdapter(
+            config.webhook_url,
+            batch_size=config.output_batch_size,
+            flush_interval_seconds=config.output_flush_interval_seconds,
+            max_retries=config.output_max_retries,
+            dead_letter_path=config.dead_letter_path,
+        )
     if config.output_mode == "none":
         return None
     raise ValueError(f"Unsupported output mode: {config.output_mode}")
@@ -87,10 +100,34 @@ def run(
     ),
     seed: int = typer.Option(42, "--seed", "-s", help="Random seed for determinism."),
     output: str = typer.Option(
-        "ndjson", "--output", "-o", help="Output adapter: 'ndjson' or 'http'."
+        "ndjson",
+        "--output",
+        "-o",
+        help="Output adapter: 'ndjson', 'http', or 'http-batch'. HTTP outputs "
+        "send 'Authorization: Bearer <token>' when the EDEN_WEBHOOK_TOKEN "
+        "environment variable is set.",
     ),
     webhook_url: Optional[str] = typer.Option(
-        None, "--webhook-url", "-w", help="Webhook URL when output mode is 'http'."
+        None,
+        "--webhook-url",
+        "-w",
+        help="Webhook URL when output mode is 'http' or 'http-batch'.",
+    ),
+    batch_size: int = typer.Option(
+        50, "--batch-size", help="Events per POST for 'http-batch' output."
+    ),
+    flush_interval: float = typer.Option(
+        5.0,
+        "--flush-interval",
+        help="Seconds before a partial 'http-batch' buffer is flushed.",
+    ),
+    max_retries: int = typer.Option(
+        3, "--max-retries", help="Total delivery attempts for HTTP outputs."
+    ),
+    dead_letter_path: str = typer.Option(
+        "eden-dead-letter.ndjson",
+        "--dead-letter-path",
+        help="File undeliverable HTTP events are appended to.",
     ),
     realtime: bool = typer.Option(
         True,
@@ -123,6 +160,10 @@ def run(
         seed=seed,
         output_mode=output,  # type: ignore[arg-type]
         webhook_url=webhook_url,
+        output_batch_size=batch_size,
+        output_flush_interval_seconds=flush_interval,
+        output_max_retries=max_retries,
+        dead_letter_path=dead_letter_path,
         period_summaries_enabled=period_summaries,
         scenario_schedule=_scenario_schedule(scenario, scenario_duration),
     )
@@ -160,10 +201,33 @@ def daemon(
         None, "--stream-id", help="Stream identifier for replay/resume."
     ),
     output: str = typer.Option(
-        "ndjson", "--output", "-o", help="Output adapter: 'ndjson', 'http', or 'none'."
+        "ndjson",
+        "--output",
+        "-o",
+        help="Output adapter: 'ndjson', 'http', 'http-batch', or 'none'. HTTP "
+        "outputs send 'Authorization: Bearer <token>' when the "
+        "EDEN_WEBHOOK_TOKEN environment variable is set.",
     ),
     webhook_url: Optional[str] = typer.Option(
-        None, "--webhook-url", help="Webhook URL when output is 'http'."
+        None,
+        "--webhook-url",
+        help="Webhook URL when output is 'http' or 'http-batch'.",
+    ),
+    batch_size: int = typer.Option(
+        50, "--batch-size", help="Events per POST for 'http-batch' output."
+    ),
+    flush_interval: float = typer.Option(
+        5.0,
+        "--flush-interval",
+        help="Seconds before a partial 'http-batch' buffer is flushed.",
+    ),
+    max_retries: int = typer.Option(
+        3, "--max-retries", help="Total delivery attempts for HTTP outputs."
+    ),
+    dead_letter_path: str = typer.Option(
+        "eden-dead-letter.ndjson",
+        "--dead-letter-path",
+        help="File undeliverable HTTP events are appended to.",
     ),
     checkpoint_interval: float = typer.Option(
         30.0, "--checkpoint-interval", help="Seconds between checkpoints."
@@ -217,6 +281,10 @@ def daemon(
         seed=seed,
         output_mode=output,  # type: ignore[arg-type]
         webhook_url=webhook_url,
+        output_batch_size=batch_size,
+        output_flush_interval_seconds=flush_interval,
+        output_max_retries=max_retries,
+        dead_letter_path=dead_letter_path,
         storage_backend=storage,  # type: ignore[arg-type]
         storage_uri=storage_uri,
         stream_id=stream_id_value,
@@ -233,13 +301,11 @@ def daemon(
 
     storage_adapter = load_storage_adapter(storage, storage_uri, stream_id_value)
 
-    output_adapter: NDJsonOutputAdapter | HttpOutputAdapter | None = None
-    if output == "ndjson":
-        output_adapter = NDJsonOutputAdapter()
-    elif output == "http":
-        if not webhook_url:
-            raise typer.BadParameter("--webhook-url is required when output is 'http'")
-        output_adapter = HttpOutputAdapter(webhook_url)
+    if output in ("http", "http-batch") and not webhook_url:
+        raise typer.BadParameter(
+            f"--webhook-url is required when output is '{output}'"
+        )
+    output_adapter = _build_adapter(config)
 
     runner = ContinuousRunner(
         config,

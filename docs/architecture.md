@@ -110,9 +110,10 @@ Output adapters are lightweight sinks for batch-mode emission:
 
 - `NDJsonOutputAdapter` — writes `EventEnvelope.to_json_line()` plus a newline to a text stream (stdout by default).
 - `HttpOutputAdapter` — POSTs each envelope as JSON to a webhook URL using `httpx`.
+- `HttpBatchOutputAdapter` — buffers envelopes and POSTs them as JSON arrays (flush on batch size, flush interval, or close).
 - `none` — no output adapter; used with `daemon` when only storage is needed.
 
-HTTP output posts one event per request. For very high throughput, a batched adapter is a future extension point.
+Both HTTP adapters deliver through a shared `HttpDelivery` helper: bearer auth from the `EDEN_WEBHOOK_TOKEN` environment variable when set, bounded retry with exponential backoff on network errors and 5xx (4xx fails immediately), and dead-lettering to an NDJSON file instead of raising when the consumer stays down — a dead consumer never crashes a run. See the "HTTP delivery hardening" section of `docs/setup.md`.
 
 ## Business definitions (Phase 0, configuration-driven runtime)
 

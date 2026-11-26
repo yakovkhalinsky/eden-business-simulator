@@ -17,8 +17,17 @@ class SimulatorConfig(BaseModel):
     max_events: int = 0
     events_per_second: float = 2.0
     seed: int = 42
-    output_mode: Literal["ndjson", "http", "none"] = "ndjson"
+    output_mode: Literal["ndjson", "http", "http-batch", "none"] = "ndjson"
     webhook_url: Optional[str] = None
+
+    # Phase 7: HTTP output hardening. Batching applies to the
+    # "http-batch" adapter; retry/dead-letter apply to both HTTP
+    # adapters. The webhook bearer token is NOT a config field — it
+    # comes from the EDEN_WEBHOOK_TOKEN environment variable (D11).
+    output_batch_size: int = 50
+    output_flush_interval_seconds: float = 5.0
+    output_max_retries: int = 3
+    dead_letter_path: str = "eden-dead-letter.ndjson"
     initial_state_overrides: dict[str, Any] = Field(default_factory=dict)
 
     # Storage / daemon options
@@ -96,10 +105,33 @@ class SimulatorConfig(BaseModel):
                     raise unknown_scenario_error(entry.name)
         return self
 
+    @field_validator("output_batch_size")
+    @classmethod
+    def output_batch_size_must_be_positive(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("output_batch_size must be at least 1")
+        return value
+
+    @field_validator("output_flush_interval_seconds")
+    @classmethod
+    def output_flush_interval_must_be_non_negative(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("output_flush_interval_seconds must be non-negative")
+        return value
+
+    @field_validator("output_max_retries")
+    @classmethod
+    def output_max_retries_must_be_positive(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("output_max_retries must be at least 1")
+        return value
+
     @model_validator(mode="after")
     def webhook_required_for_http(self) -> "SimulatorConfig":
-        if self.output_mode == "http" and not self.webhook_url:
-            raise ValueError("webhook_url is required when output_mode is 'http'")
+        if self.output_mode in ("http", "http-batch") and not self.webhook_url:
+            raise ValueError(
+                f"webhook_url is required when output_mode is '{self.output_mode}'"
+            )
         return self
 
     @model_validator(mode="after")

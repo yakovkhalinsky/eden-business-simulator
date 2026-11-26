@@ -42,8 +42,12 @@ Useful flags:
 | `--max-events`, `-n` | Hard cap on the number of emitted events. |
 | `--seed`, `-s` | Random seed; the same seed produces the same event sequence when combined with `--no-realtime`. |
 | `--realtime/--no-realtime` | Pace against wall-clock time or emit as fast as possible. |
-| `--output`, `-o` | `ndjson` (default), `http`, or `none`. |
-| `--webhook-url`, `-w` | Webhook URL when `--output http`. |
+| `--output`, `-o` | `ndjson` (default), `http`, `http-batch`, or `none`. |
+| `--webhook-url`, `-w` | Webhook URL when `--output http` or `http-batch`. |
+| `--batch-size` | Events per POST for `http-batch` (default `50`). |
+| `--flush-interval` | Seconds before a partial `http-batch` buffer is flushed (default `5`). |
+| `--max-retries` | Total delivery attempts for HTTP outputs (default `3`). |
+| `--dead-letter-path` | File undeliverable HTTP events are appended to (default `eden-dead-letter.ndjson`). |
 
 The default `ndjson` output writes one JSON `EventEnvelope` per line to stdout, so it is easy to pipe into another process.
 
@@ -55,7 +59,24 @@ uv run eden-business-simulator run gym --duration 120 --rate 2 --no-realtime | .
 
 - `ndjson` — one JSON event envelope per line to stdout.
 - `http` — POST each event envelope as JSON to `--webhook-url`.
+- `http-batch` — buffer envelopes and POST them as JSON arrays to `--webhook-url`. A batch is sent when it reaches `--batch-size` events, when `--flush-interval` seconds have elapsed since the first buffered event (checked on each write; there are no background threads), or at run end, when the partial batch is flushed. Event order is preserved within and across batches.
 - `none` — suppress stdout output. This is mainly useful with `daemon` when only persistence matters.
+
+### HTTP delivery hardening
+
+Both HTTP outputs share one delivery policy:
+
+- **Auth** — when the `EDEN_WEBHOOK_TOKEN` environment variable is set, every request carries `Authorization: Bearer <token>`. The token is read from the environment only — never from CLI flags or config files — and is never logged. Unset, no header is sent.
+- **Retry** — network errors and HTTP 5xx are retried up to `--max-retries` total attempts with exponential backoff (0.5s, doubling). HTTP 4xx fails immediately: the consumer has rejected the payload, and retrying cannot help.
+- **Dead-letter** — when delivery still fails, the events are appended to the dead-letter file (default `eden-dead-letter.ndjson`, override with `--dead-letter-path`) and the run *continues*: a dead consumer never crashes or hangs a run. Each dead-lettered event is one NDJSON line — the event envelope plus a `_dead_letter` object:
+
+```json
+{"event_id": "evt-1", "event_type": "order_placed", "...": "...", "_dead_letter": {"failed_at": "2026-08-02T12:00:00+00:00", "attempts": 3, "last_status": 500, "url": "http://localhost:8080/events"}}
+```
+
+(`last_status` is replaced by `error` for network failures.)
+
+Delivery semantics, precisely: each event is either delivered (a 2xx response) or captured in the dead-letter file. Dead-lettered events are *not* redelivered automatically, and a retried batch is only re-sent when the previous attempt provably failed before a 2xx — but a consumer that also reads storage should still dedupe by `event_id` / sequence, because a connection lost after the consumer processed a batch can make that batch arrive twice (once live, once via replay).
 
 ## Continuous daemon mode
 
