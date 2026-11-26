@@ -172,6 +172,7 @@ class GymSimulator(BusinessSimulator):
             "session_count": len(self.sessions),
             "workout_count": len(self.workouts),
             "payments_failed_count": len(self.payments_failed),
+            "invoices_counter": self.invoices_counter,
         }
 
     def position_snapshot(self) -> dict[str, Any]:
@@ -199,12 +200,19 @@ class GymSimulator(BusinessSimulator):
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
-        """Restore from a checkpoint snapshot.
+        """Restore the restorable fields of the summary snapshot.
 
-        For the gym simulator we only restore lightweight counters; member/class
-        identity is rebuilt from deterministic generation on resume.
+        ``state_snapshot()`` is a summary: it does not capture the member,
+        membership, class or booking collections, so those restart from
+        ``initialize()`` on resume (full-state restore is the restorable-
+        state project's S3 slice). What the snapshot *does* carry as state
+        in its own right is restored here, so snapshot and restore stay
+        consistent: the invoice counter and the cancelled-member list
+        (the catalogue guards consult the latter, so losing it on resume
+        changed which events could fire).
         """
         self.invoices_counter = snapshot.get("invoices_counter", 0)
+        self._cancelled_members = list(snapshot.get("cancelled_members", []))
 
     # ------------------------------------------------------------------
     # Internal helpers
