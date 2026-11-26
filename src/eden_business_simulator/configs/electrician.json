@@ -166,5 +166,63 @@
       "event_type": "parts_used",
       "field": "unit_cost"
     }
+  ],
+  "actions": [
+    {
+      "action_type": "assign_technician",
+      "effect": "assign_technician",
+      "effect_event_type": "technician_assigned",
+      "params": [
+        {"name": "ticket_id", "type": "string", "required": true},
+        {"name": "technician_id", "type": "string", "required": true},
+        {"name": "eta_minutes", "type": "integer", "min": 5, "max": 240}
+      ]
+    },
+    {
+      "action_type": "dispatch_technician",
+      "effect": "dispatch_technician",
+      "effect_event_type": "technician_dispatched",
+      "params": [
+        {"name": "ticket_id", "type": "string", "required": true}
+      ]
+    },
+    {
+      "action_type": "order_parts",
+      "effect": "order_parts",
+      "effect_event_type": "parts_reorder_placed",
+      "params": [
+        {"name": "part_id", "type": "string", "required": true},
+        {"name": "qty", "type": "integer", "required": true, "min": 1, "max": 100}
+      ]
+    },
+    {
+      "action_type": "approve_estimate",
+      "effect": "approve_estimate",
+      "effect_event_type": "estimate_approved",
+      "params": [
+        {"name": "ticket_id", "type": "string", "required": true},
+        {"name": "labor_estimate", "type": "number", "required": true, "min": 10, "max": 10000},
+        {"name": "parts_estimate", "type": "number", "required": true, "min": 0, "max": 10000}
+      ]
+    },
+    {
+      "action_type": "chase_invoice",
+      "effect": "chase_invoice",
+      "effect_event_type": "invoice_chased",
+      "params": [
+        {"name": "invoice_id", "type": "string", "required": true},
+        {"name": "channel", "type": "string", "enum": ["email", "phone", "sms"]}
+      ]
+    },
+    {
+      "action_type": "schedule_follow_up",
+      "effect": "schedule_follow_up",
+      "effect_event_type": "follow_up_scheduled",
+      "params": [
+        {"name": "ticket_id", "type": "string", "required": true},
+        {"name": "days_ahead", "type": "integer", "min": 1, "max": 180},
+        {"name": "follow_up_type", "type": "string", "enum": ["maintenance_check", "warranty_check", "satisfaction_call"]}
+      ]
+    }
   ]
 }

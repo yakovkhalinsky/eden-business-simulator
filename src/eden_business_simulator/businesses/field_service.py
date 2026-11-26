@@ -9,6 +9,7 @@ from typing import Any
 from faker import Faker
 
 from eden_business_simulator.businesses.base import (
+    ActionRejected,
     BusinessSimulator,
     DEFAULT_TAX_TYPE,
     compute_tax,
@@ -50,6 +51,7 @@ class FieldServiceSimulator(BusinessSimulator):
         self.vehicles: list[dict[str, Any]] = []
         self.catalog = WeightedEventCatalog(self.rng)
         self._parts_used_total = 0
+        self.parts_orders: list[dict[str, Any]] = []
 
     def initialize(self, seed: int) -> None:
         self.rng.seed(seed)
@@ -68,6 +70,7 @@ class FieldServiceSimulator(BusinessSimulator):
         self.vehicles = []
         self.catalog = WeightedEventCatalog(self.rng)
         self._parts_used_total = 0
+        self.parts_orders = []
         definition = getattr(self, "definition", None)
         if definition is not None:
             domain = definition.domain
@@ -526,5 +529,190 @@ class FieldServiceSimulator(BusinessSimulator):
                 "supplier_id": self.id_gen.next("sup"),
                 "parts": [{"part_id": part[0], "qty": self.rng.randint(5, 20)}],
                 "placed_at": clock.now.isoformat(),
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Action handlers (Phase 4b — shared by field_service, electrician
+    # and plumber; the businesses differ only by their configured
+    # categories and parts catalogues). All handlers validate before
+    # mutating and consume no RNG. None of the trades actions requires
+    # approval: assigning, dispatching, ordering parts, approving an
+    # estimate, chasing an invoice and scheduling a follow-up are
+    # routine operations.
+    # ------------------------------------------------------------------
+
+    def _ticket_or_reject(self, ticket_id: str) -> dict[str, Any]:
+        ticket = next(
+            (t for t in self.tickets if t["ticket_id"] == ticket_id), None
+        )
+        if ticket is None:
+            raise ActionRejected(f"unknown_ticket:{ticket_id}")
+        return ticket
+
+    def _apply_assign_technician(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        ticket = self._ticket_or_reject(params["ticket_id"])
+        if ticket["status"] != "open":
+            raise ActionRejected(f"ticket_not_open:{params['ticket_id']}")
+        tech = next(
+            (
+                t
+                for t in self.techs.all()
+                if t.actor_id == params["technician_id"]
+            ),
+            None,
+        )
+        if tech is None:
+            raise ActionRejected(
+                f"unknown_technician:{params['technician_id']}"
+            )
+        eta_minutes = params.get("eta_minutes", 60)
+        ticket["status"] = "assigned"
+        ticket["technician_id"] = tech.actor_id
+        eta = clock.now + timedelta(minutes=eta_minutes)
+        return {
+            "event_type": "technician_assigned",
+            "payload": {
+                "ticket_id": ticket["ticket_id"],
+                "technician_id": tech.actor_id,
+                "vehicle_id": (
+                    self.vehicles[0]["vehicle_id"] if self.vehicles else None
+                ),
+                "assigned_at": clock.now.isoformat(),
+                "estimated_arrival": eta.isoformat(),
+            },
+        }
+
+    def _apply_dispatch_technician(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        ticket = self._ticket_or_reject(params["ticket_id"])
+        if ticket["status"] != "assigned":
+            raise ActionRejected(
+                f"ticket_not_assigned:{params['ticket_id']}"
+            )
+        ticket["status"] = "dispatched"
+        return {
+            "event_type": "technician_dispatched",
+            "payload": {
+                "ticket_id": ticket["ticket_id"],
+                "technician_id": ticket["technician_id"],
+                "dispatched_at": clock.now.isoformat(),
+                "location": {"lat": -33.8688, "lon": 151.2093},
+            },
+        }
+
+    def _apply_order_parts(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        # The part is validated against THIS business's configured
+        # parts catalogue: a part valid for one trade is rejected by
+        # another whose catalogue lacks it.
+        if params["part_id"] not in {part[0] for part in self._PARTS}:
+            raise ActionRejected(f"unknown_part:{params['part_id']}")
+        reorder_id = self.id_gen.next("ro")
+        supplier_id = self.id_gen.next("sup")
+        self.parts_orders.append(
+            {
+                "reorder_id": reorder_id,
+                "part_id": params["part_id"],
+                "qty": params["qty"],
+                "ordered_at": clock.now.isoformat(),
+            }
+        )
+        return {
+            "event_type": "parts_reorder_placed",
+            "payload": {
+                "reorder_id": reorder_id,
+                "supplier_id": supplier_id,
+                "parts": [{"part_id": params["part_id"], "qty": params["qty"]}],
+                "placed_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_approve_estimate(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        ticket = self._ticket_or_reject(params["ticket_id"])
+        if ticket["status"] != "open":
+            raise ActionRejected(f"ticket_not_open:{params['ticket_id']}")
+        if ticket.get("estimate_approved"):
+            raise ActionRejected(
+                f"estimate_already_approved:{params['ticket_id']}"
+            )
+        labor_estimate = round(float(params["labor_estimate"]), 2)
+        parts_estimate = round(float(params["parts_estimate"]), 2)
+        total_estimate = round(labor_estimate + parts_estimate, 2)
+        ticket["estimate_approved"] = True
+        ticket["labor_estimate"] = labor_estimate
+        ticket["parts_estimate"] = parts_estimate
+        return {
+            "event_type": "estimate_approved",
+            "payload": {
+                "estimate_id": self.id_gen.next("est"),
+                "ticket_id": ticket["ticket_id"],
+                "customer_id": ticket["customer_id"],
+                "labor_estimate": labor_estimate,
+                "parts_estimate": parts_estimate,
+                "total_estimate": total_estimate,
+                "tax_amount": compute_tax(total_estimate),
+                "tax_type": DEFAULT_TAX_TYPE,
+                "approved_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_chase_invoice(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        invoice = next(
+            (
+                i
+                for i in self.invoices
+                if i["invoice_id"] == params["invoice_id"]
+            ),
+            None,
+        )
+        if invoice is None:
+            raise ActionRejected(f"unknown_invoice:{params['invoice_id']}")
+        if invoice["status"] != "open":
+            raise ActionRejected(f"invoice_not_open:{params['invoice_id']}")
+        chased_at = clock.now.isoformat()
+        invoice["chase_count"] = invoice.get("chase_count", 0) + 1
+        invoice["last_chased_at"] = chased_at
+        return {
+            "event_type": "invoice_chased",
+            "payload": {
+                "invoice_id": invoice["invoice_id"],
+                "ticket_id": invoice["ticket_id"],
+                "customer_id": invoice["customer_id"],
+                "amount": invoice["total"],
+                "channel": params.get("channel", "email"),
+                "chase_count": invoice["chase_count"],
+                "chased_at": chased_at,
+            },
+        }
+
+    def _apply_schedule_follow_up(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        ticket = self._ticket_or_reject(params["ticket_id"])
+        if ticket["status"] not in ("completed", "invoiced"):
+            raise ActionRejected(
+                f"ticket_not_completed:{params['ticket_id']}"
+            )
+        days_ahead = params.get("days_ahead", 30)
+        due = clock.now + timedelta(days=days_ahead)
+        return {
+            "event_type": "follow_up_scheduled",
+            "payload": {
+                "ticket_id": ticket["ticket_id"],
+                "follow_up_id": self.id_gen.next("fu"),
+                "follow_up_type": params.get(
+                    "follow_up_type", "maintenance_check"
+                ),
+                "scheduled_date": due.date().isoformat(),
+                "scheduled_at": clock.now.isoformat(),
             },
         }

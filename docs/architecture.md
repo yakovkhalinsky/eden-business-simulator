@@ -256,8 +256,24 @@ catalogued appointment event types), `add_provider_shift`
 (action-only effect `provider_shift_added` — a roster-availability
 record only; the clinic simulation has no shift state that gates
 events), and `chase_claim` (action-only effect `claim_chased`,
-tracked as `chase_count`/`last_chased_at` on the claim). The
-remaining six businesses declare no actions yet (Phase 4b/4c).
+tracked as `chase_count`/`last_chased_at` on the claim).
+
+Phase 4b adds the trades catalogue, shared by `field_service`,
+`electrician` and `plumber`: one handler implementation on
+`FieldServiceSimulator`, inherited unchanged by the other two, with
+the same six actions declared in all three definitions —
+`assign_technician`, `dispatch_technician`, `order_parts`,
+`approve_estimate`, `chase_invoice` (action-only effect
+`invoice_chased`, tracked as `chase_count`/`last_chased_at` on the
+invoice) and `schedule_follow_up`. The businesses differ only by
+their configured categories and parts catalogues, and the handlers
+honour that: `order_parts` validates the part against the acting
+business's own catalogue, so a part valid for one trade is rejected
+as unknown by another. None of the trades actions requires approval
+— assigning, dispatching, ordering parts, approving an estimate,
+chasing an invoice and scheduling a follow-up are routine
+operations. The remaining three businesses declare no actions yet
+(Phase 4c).
 
 Simulators must never rely on global random state. They should create local `random.Random` and `faker.Faker` instances seeded from `initialize(seed)`.
 

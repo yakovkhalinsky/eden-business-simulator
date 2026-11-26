@@ -121,7 +121,7 @@ stream-based KPI can be recomputed from the raw events between the
 summary's `sequence_start` and `sequence_end`. Disable them with
 `--no-period-summaries` on the `run` and `daemon` commands.
 
-## Actions (Phase 3 cafe pilot, Phase 4a gym + clinic)
+## Actions (Phase 3 cafe pilot, Phase 4a gym + clinic, Phase 4b trades)
 
 Simulators can be *managed*, not just observed. The cafe accepts
 four actions — `place_supplier_order`, `adjust_price` (requires an
@@ -131,7 +131,14 @@ accepts `freeze_membership`, `unfreeze_membership`, `schedule_class`,
 `cancel_class`, `send_retention_outreach` and `adjust_plan_price`
 (also approval-gated); the clinic accepts `schedule_appointment`,
 `cancel_appointment`, `reschedule_appointment`, `add_provider_shift`
-and `chase_claim`. Programmatic
+and `chase_claim`. The three trades businesses — `field_service`,
+`electrician` and `plumber` — share one implementation and one
+action catalogue: `assign_technician`, `dispatch_technician`,
+`order_parts`, `approve_estimate`, `chase_invoice` and
+`schedule_follow_up`, differentiated only by their configured
+categories and parts catalogues (a part valid for one trade is
+rejected as unknown by another). None of the trades actions
+requires approval. Programmatic
 callers submit `ActionRequest`s through a runner: scripted
 `actions=[(sequence, request)]` for deterministic runs, or
 `ContinuousRunner.submit_action(request)` from another thread.
