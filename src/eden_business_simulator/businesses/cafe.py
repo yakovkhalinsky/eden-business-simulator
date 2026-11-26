@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 from typing import Any
 
@@ -14,6 +15,7 @@ from eden_business_simulator.businesses.base import (
     compute_tax,
 )
 from eden_business_simulator.framework.actors import (
+    Actor,
     ActorPool,
     MenuCatalog,
     RecipeComponent,
@@ -276,6 +278,119 @@ class CafeSimulator(BusinessSimulator):
             "member_count": len(self.members.all()),
             "waste_total": self.ledger.waste_total() if self.ledger else 0.0,
         }
+
+    # ------------------------------------------------------------------
+    # Full-state snapshot / restore (restorable state, S2)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture every piece of mutable business state.
+
+        Beyond the entity lists this includes the framework objects'
+        internals: the inventory ledger's stock quantities and raw
+        waste accumulator, the recipe book (serialised directly rather
+        than rebuilt from the menu, so it stays exact even if a recipe
+        ever diverges from its menu item), both transition models'
+        per-entity states, the staff roster's clocked-in flags, the
+        menu items (whose prices the ``adjust_price`` action mutates),
+        the pending setup queue, and the phase/shift flags. Tickets
+        carry real ``datetime`` values (``fired_at``/``due_at``/
+        ``prepared_at``); the framework's full-state codec encodes
+        those explicitly. The definition-shadowed ``_MENU`` /
+        ``_INGREDIENTS`` / ``_TABLES`` / ``_STAFF`` tuples are *not*
+        captured: nothing mutates them and ``initialize()`` rebuilds
+        them deterministically from the definition. The catalogue and
+        daypart scheduler hold no run state.
+        """
+        ledger = self.ledger
+        return {
+            "staff": copy.deepcopy(self.staff._staff),
+            "menu_items": copy.deepcopy(self.menu._items),
+            "members": [
+                {
+                    "actor_id": actor.actor_id,
+                    "actor_type": actor.actor_type,
+                    "name": actor.name,
+                    "attributes": copy.deepcopy(actor.attributes),
+                }
+                for actor in self.members.all()
+            ],
+            "tables": copy.deepcopy(self.tables),
+            "recipes": {
+                item_id: [
+                    {
+                        "ingredient_id": component.ingredient_id,
+                        "name": component.name,
+                        "qty": component.qty,
+                        "unit": component.unit,
+                    }
+                    for component in components
+                ]
+                for item_id, components in self.recipe_book._recipes.items()
+            },
+            "ledger_stock": (
+                copy.deepcopy(ledger._stock) if ledger is not None else {}
+            ),
+            "ledger_waste_total": (
+                ledger._waste_total if ledger is not None else 0.0
+            ),
+            "orders": copy.deepcopy(self.orders),
+            "tickets": copy.deepcopy(self.tickets),
+            "order_machine_states": self.order_machine.snapshot(),
+            "ticket_machine_states": self.ticket_machine.snapshot(),
+            "shift_opened": self._shift_opened,
+            "shift_closed": self._shift_closed,
+            "register_id": self._register_id,
+            "opening_float": self._opening_float,
+            "cash_sales": self._cash_sales,
+            "card_sales": self._card_sales,
+            "pending_setup": list(self._pending_setup),
+            "phase": self._phase,
+            "delivery_index": self._delivery_index,
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace all business state from :meth:`serialize_state`.
+
+        Runs after a fresh ``initialize()`` on the daemon path, so
+        every attribute captured above is overwritten wholesale —
+        nothing from the initial state may leak through.
+        """
+        self.staff._staff = copy.deepcopy(state["staff"])
+        self.menu._items = copy.deepcopy(state["menu_items"])
+        self.members._actors = [
+            Actor(
+                actor_id=row["actor_id"],
+                actor_type=row["actor_type"],
+                name=row["name"],
+                attributes=copy.deepcopy(row["attributes"]),
+            )
+            for row in state["members"]
+        ]
+        self.tables = copy.deepcopy(state["tables"])
+        self.recipe_book._recipes = {
+            item_id: [
+                RecipeComponent(**component) for component in components
+            ]
+            for item_id, components in state["recipes"].items()
+        }
+        if self.ledger is not None:
+            self.ledger._stock = copy.deepcopy(state["ledger_stock"])
+            self.ledger._waste_total = state["ledger_waste_total"]
+            self.ledger.set_recipe_book(self.recipe_book)
+        self.orders = copy.deepcopy(state["orders"])
+        self.tickets = copy.deepcopy(state["tickets"])
+        self.order_machine._states = dict(state["order_machine_states"])
+        self.ticket_machine._states = dict(state["ticket_machine_states"])
+        self._shift_opened = state["shift_opened"]
+        self._shift_closed = state["shift_closed"]
+        self._register_id = state["register_id"]
+        self._opening_float = state["opening_float"]
+        self._cash_sales = state["cash_sales"]
+        self._card_sales = state["card_sales"]
+        self._pending_setup = list(state["pending_setup"])
+        self._phase = state["phase"]
+        self._delivery_index = state["delivery_index"]
 
     def position_snapshot(self) -> dict[str, Any]:
         stock = {}

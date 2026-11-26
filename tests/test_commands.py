@@ -328,7 +328,14 @@ def test_restart_idempotency_sqlite(tmp_path):
         requested_by="beth", action_id="op-1", submitted_at=TS_SUBMIT,
     )
     runner2, sim2 = _cafe_runner(storage2, RUN_ID, backend="sqlite", uri=db, max_events=2)
-    stock_before = sim2.position_snapshot()["position"]["stock"]["ing_001"]["qty"]
+    # Restorable state (S2): the resumed process continues the first
+    # process's business state, so the "before" stock for the duplicate
+    # check is the checkpointed position from process 1 (which already
+    # includes the original order's +5) — not a fresh simulator's zero.
+    # The assertion's intent is unchanged: the duplicate must move no
+    # stock relative to the state the run resumed from.
+    stored_position = storage2.read_snapshot(ContinuousRunner.POSITION_KEY)
+    stock_before = stored_position["position"]["stock"]["ing_001"]["qty"]
     runner2.run()
 
     storage3 = _make_adapter("sqlite", tmp_path)

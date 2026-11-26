@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -14,7 +15,7 @@ from eden_business_simulator.businesses.base import (
     DEFAULT_TAX_TYPE,
     compute_tax,
 )
-from eden_business_simulator.framework.actors import ActorPool
+from eden_business_simulator.framework.actors import Actor, ActorPool
 from eden_business_simulator.framework.catalog import WeightedEventCatalog
 from eden_business_simulator.framework.ids import IdGenerator
 from eden_business_simulator.models import Clock
@@ -121,6 +122,71 @@ class FieldServiceSimulator(BusinessSimulator):
             "vehicle_count": len(self.vehicles),
             "tickets_by_status": self._tickets_by_status(),
         }
+
+    # ------------------------------------------------------------------
+    # Full-state snapshot / restore (restorable state, S2)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Capture every piece of mutable business state.
+
+        The catalogue and the definition-shadowed ``_CATEGORIES`` /
+        ``_PARTS`` are the only other state: the catalogue is rebuilt
+        deterministically by ``initialize()`` and holds no run state,
+        while the category/part tuples *are* captured below — they are
+        shadowed onto the instance at ``initialize()`` time, so this
+        keeps the restored instance identical even if it was built
+        against a different definition revision. Tickets carry any
+        action-added fields (``estimate_approved``, estimates,
+        ``technician_id``) and invoices any chase fields, since the
+        entity dicts are captured whole.
+        """
+        return {
+            "customers": copy.deepcopy(self.customers),
+            "tickets": copy.deepcopy(self.tickets),
+            "invoices": copy.deepcopy(self.invoices),
+            "vehicles": copy.deepcopy(self.vehicles),
+            "techs": [
+                {
+                    "actor_id": actor.actor_id,
+                    "actor_type": actor.actor_type,
+                    "name": actor.name,
+                    "attributes": copy.deepcopy(actor.attributes),
+                }
+                for actor in self.techs.all()
+            ],
+            "parts_used_total": self._parts_used_total,
+            "parts_orders": copy.deepcopy(self.parts_orders),
+            "categories": list(self._CATEGORIES),
+            "parts": [list(row) for row in self._PARTS],
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace all business state from :meth:`serialize_state`.
+
+        Runs after a fresh ``initialize()`` on the daemon path, so
+        every attribute captured above is overwritten wholesale —
+        nothing from the initial state may leak through.
+        """
+        self.customers = copy.deepcopy(state["customers"])
+        self.tickets = copy.deepcopy(state["tickets"])
+        self.invoices = copy.deepcopy(state["invoices"])
+        self.vehicles = copy.deepcopy(state["vehicles"])
+        self.techs._actors = [
+            Actor(
+                actor_id=row["actor_id"],
+                actor_type=row["actor_type"],
+                name=row["name"],
+                attributes=copy.deepcopy(row["attributes"]),
+            )
+            for row in state["techs"]
+        ]
+        self._parts_used_total = state["parts_used_total"]
+        self.parts_orders = copy.deepcopy(state["parts_orders"])
+        if "categories" in state:
+            self._CATEGORIES = tuple(state["categories"])
+        if "parts" in state:
+            self._PARTS = tuple(tuple(row) for row in state["parts"])
 
     def position_snapshot(self) -> dict[str, Any]:
         open_invoices = [i for i in self.invoices if i["status"] == "open"]
