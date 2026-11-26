@@ -272,8 +272,34 @@ business's own catalogue, so a part valid for one trade is rejected
 as unknown by another. None of the trades actions requires approval
 — assigning, dispatching, ordering parts, approving an estimate,
 chasing an invoice and scheduling a follow-up are routine
-operations. The remaining three businesses declare no actions yet
-(Phase 4c).
+operations.
+
+Phase 4c completes the catalogues — all nine businesses now declare
+actions. Ecommerce: `adjust_price` (approval-gated; action-only
+effect `product_price_adjusted`), `restock_product` (reusing the
+catalogued `inventory_adjusted`), `issue_refund` (approval-gated,
+reusing `refund_issued`; only paid or shipped orders are
+refundable), and `expedite_order` (action-only effect
+`order_expedited`; paid orders only). SaaS: `chase_invoice`
+(action-only effect `invoice_chased`, tracked as
+`chase_count`/`last_chased_at` on the invoice), `change_plan_price`
+(approval-gated; reprices the plan and every existing subscription
+on it, so position MRR moves — action-only effect
+`plan_price_changed`), `freeze_account` / `unfreeze_account`
+(action-only effects `account_frozen` / `account_unfrozen`; a frozen
+subscription drops out of the active count and MRR until unfrozen),
+`offer_discount` (approval-gated; recorded on the subscription, or
+on the simulator's `discounts` list for accounts without one —
+action-only effect `discount_offered`), and `resolve_ticket`
+(reusing the catalogued `ticket_resolved`). Logistics:
+`assign_driver` (reassigns a planned route to another driver,
+reusing the catalogued `driver_assigned`), `replan_route`
+(action-only effect `route_replanned`; reverses the route's stop
+order and renumbers the `sequence` on the stop records),
+`expedite_shipment` (action-only effect `shipment_expedited`;
+refused once a shipment is delivered), and `initiate_return`
+(reusing the catalogued `return_initiated`; delivered shipments
+only).
 
 Simulators must never rely on global random state. They should create local `random.Random` and `faker.Faker` instances seeded from `initialize(seed)`.
 

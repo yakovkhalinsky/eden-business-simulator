@@ -114,5 +114,45 @@
       "kind": "count",
       "event_type": "product_viewed"
     }
+  ],
+  "actions": [
+    {
+      "action_type": "adjust_price",
+      "effect": "adjust_price",
+      "effect_event_type": "product_price_adjusted",
+      "requires_approval": true,
+      "params": [
+        {"name": "product_id", "type": "string", "required": true},
+        {"name": "new_price", "type": "number", "required": true, "min": 0.5, "max": 10000}
+      ]
+    },
+    {
+      "action_type": "restock_product",
+      "effect": "restock_product",
+      "effect_event_type": "inventory_adjusted",
+      "params": [
+        {"name": "product_id", "type": "string", "required": true},
+        {"name": "qty", "type": "integer", "required": true, "min": 1, "max": 10000}
+      ]
+    },
+    {
+      "action_type": "issue_refund",
+      "effect": "issue_refund",
+      "effect_event_type": "refund_issued",
+      "requires_approval": true,
+      "params": [
+        {"name": "order_id", "type": "string", "required": true},
+        {"name": "reason", "type": "string", "enum": ["defective", "not_as_described", "changed_mind", "manager_goodwill"]}
+      ]
+    },
+    {
+      "action_type": "expedite_order",
+      "effect": "expedite_order",
+      "effect_event_type": "order_expedited",
+      "params": [
+        {"name": "order_id", "type": "string", "required": true},
+        {"name": "carrier", "type": "string", "enum": ["FedEx", "UPS", "DHL", "USPS"]}
+      ]
+    }
   ]
 }

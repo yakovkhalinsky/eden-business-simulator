@@ -9,6 +9,7 @@ from typing import Any
 from faker import Faker
 
 from eden_business_simulator.businesses.base import (
+    ActionRejected,
     BusinessSimulator,
     DEFAULT_TAX_TYPE,
     compute_tax,
@@ -636,6 +637,136 @@ class LogisticsSimulator(BusinessSimulator):
                 "stops_failed": 0,
                 "actual_miles": miles,
                 "final_odometer_km": vehicle["odometer_km"],
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Action handlers (Phase 4c)
+    #
+    # New action-only effect types: route_replanned,
+    # shipment_expedited. Handlers validate before mutating and
+    # consume no RNG.
+    # ------------------------------------------------------------------
+
+    def _route_or_reject(self, route_id: str) -> dict[str, Any]:
+        route = next(
+            (r for r in self.routes if r["route_id"] == route_id), None
+        )
+        if route is None:
+            raise ActionRejected(f"unknown_route:{route_id}")
+        return route
+
+    def _shipment_or_reject(self, shipment_id: str) -> dict[str, Any]:
+        shipment = next(
+            (s for s in self.shipments if s["shipment_id"] == shipment_id),
+            None,
+        )
+        if shipment is None:
+            raise ActionRejected(f"unknown_shipment:{shipment_id}")
+        return shipment
+
+    def _apply_assign_driver(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        route = self._route_or_reject(params["route_id"])
+        if route["status"] != "planned":
+            raise ActionRejected(f"route_not_planned:{params['route_id']}")
+        driver = next(
+            (
+                d
+                for d in self.drivers.all()
+                if d.actor_id == params["driver_id"]
+            ),
+            None,
+        )
+        if driver is None:
+            raise ActionRejected(f"unknown_driver:{params['driver_id']}")
+        route["driver_id"] = driver.actor_id
+        return {
+            "event_type": "driver_assigned",
+            "payload": {
+                "route_id": route["route_id"],
+                "driver_id": driver.actor_id,
+                "vehicle_id": route["vehicle_id"],
+                "assigned_at": clock.now.isoformat(),
+                "driver_app_version": "3.2.1",
+            },
+        }
+
+    def _apply_replan_route(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        route = self._route_or_reject(params["route_id"])
+        if route["status"] not in ("planned", "started"):
+            raise ActionRejected(
+                f"route_not_replannable:{params['route_id']}"
+            )
+        new_order = list(reversed(route["stops"]))
+        route["stops"] = new_order
+        stops_by_id = {s["stop_id"]: s for s in self.stops}
+        payload_stops = []
+        for idx, stop_id in enumerate(new_order):
+            stop = stops_by_id.get(stop_id)
+            if stop is not None:
+                stop["sequence"] = idx + 1
+            payload_stops.append(
+                {"stop_id": stop_id, "sequence": idx + 1}
+            )
+        return {
+            "event_type": "route_replanned",
+            "payload": {
+                "route_id": route["route_id"],
+                "stops": payload_stops,
+                "replanned_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_expedite_shipment(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        shipment = self._shipment_or_reject(params["shipment_id"])
+        if shipment["status"] == "delivered":
+            raise ActionRejected(
+                f"shipment_already_delivered:{params['shipment_id']}"
+            )
+        old_service_level = shipment["service_level"]
+        new_service_level = params.get("service_level", "same_day")
+        shipment["service_level"] = new_service_level
+        shipment["expedited"] = True
+        return {
+            "event_type": "shipment_expedited",
+            "payload": {
+                "shipment_id": shipment["shipment_id"],
+                "old_service_level": old_service_level,
+                "new_service_level": new_service_level,
+                "expedited_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_initiate_return(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        shipment = self._shipment_or_reject(params["shipment_id"])
+        if shipment["status"] != "delivered":
+            raise ActionRejected(
+                f"shipment_not_delivered:{params['shipment_id']}"
+            )
+        return_id = self.id_gen.next("ret")
+        reason = params.get("reason", "wrong_item")
+        self.returns.append(
+            {
+                "return_id": return_id,
+                "shipment_id": shipment["shipment_id"],
+                "reason": reason,
+            }
+        )
+        return {
+            "event_type": "return_initiated",
+            "payload": {
+                "return_id": return_id,
+                "shipment_id": shipment["shipment_id"],
+                "reason": reason,
+                "initiated_at": clock.now.isoformat(),
             },
         }
 

@@ -214,5 +214,42 @@
       "event_type": "fuel_stop_logged",
       "field": "cost"
     }
+  ],
+  "actions": [
+    {
+      "action_type": "assign_driver",
+      "effect": "assign_driver",
+      "effect_event_type": "driver_assigned",
+      "params": [
+        {"name": "route_id", "type": "string", "required": true},
+        {"name": "driver_id", "type": "string", "required": true}
+      ]
+    },
+    {
+      "action_type": "replan_route",
+      "effect": "replan_route",
+      "effect_event_type": "route_replanned",
+      "params": [
+        {"name": "route_id", "type": "string", "required": true}
+      ]
+    },
+    {
+      "action_type": "expedite_shipment",
+      "effect": "expedite_shipment",
+      "effect_event_type": "shipment_expedited",
+      "params": [
+        {"name": "shipment_id", "type": "string", "required": true},
+        {"name": "service_level", "type": "string", "enum": ["same_day", "next_day"]}
+      ]
+    },
+    {
+      "action_type": "initiate_return",
+      "effect": "initiate_return",
+      "effect_event_type": "return_initiated",
+      "params": [
+        {"name": "shipment_id", "type": "string", "required": true},
+        {"name": "reason", "type": "string", "enum": ["wrong_item", "damaged", "not_needed"]}
+      ]
+    }
   ]
 }

@@ -121,7 +121,7 @@ stream-based KPI can be recomputed from the raw events between the
 summary's `sequence_start` and `sequence_end`. Disable them with
 `--no-period-summaries` on the `run` and `daemon` commands.
 
-## Actions (Phase 3 cafe pilot, Phase 4a gym + clinic, Phase 4b trades)
+## Actions (Phase 3 cafe pilot, Phase 4a gym + clinic, Phase 4b trades, Phase 4c ecommerce + saas + logistics)
 
 Simulators can be *managed*, not just observed. The cafe accepts
 four actions — `place_supplier_order`, `adjust_price` (requires an
@@ -138,7 +138,14 @@ action catalogue: `assign_technician`, `dispatch_technician`,
 `schedule_follow_up`, differentiated only by their configured
 categories and parts catalogues (a part valid for one trade is
 rejected as unknown by another). None of the trades actions
-requires approval. Programmatic
+requires approval. With Phase 4c every business has a catalogue:
+ecommerce accepts `adjust_price` and `issue_refund` (both
+approval-gated), `restock_product` and `expedite_order`; saas
+accepts `chase_invoice`, `change_plan_price` (approval-gated),
+`freeze_account`, `unfreeze_account`, `offer_discount`
+(approval-gated) and `resolve_ticket`; logistics accepts
+`assign_driver`, `replan_route`, `expedite_shipment` and
+`initiate_return`. Programmatic
 callers submit `ActionRequest`s through a runner: scripted
 `actions=[(sequence, request)]` for deterministic runs, or
 `ContinuousRunner.submit_action(request)` from another thread.

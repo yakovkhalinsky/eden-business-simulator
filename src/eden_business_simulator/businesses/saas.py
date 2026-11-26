@@ -9,6 +9,7 @@ from typing import Any
 from faker import Faker
 
 from eden_business_simulator.businesses.base import (
+    ActionRejected,
     BusinessSimulator,
     DEFAULT_TAX_TYPE,
     compute_tax,
@@ -52,6 +53,7 @@ class SaaSSimulator(BusinessSimulator):
         self.subscriptions: dict[str, dict[str, Any]] = {}
         self.invoices: list[dict[str, Any]] = []
         self.tickets: list[dict[str, Any]] = []
+        self.discounts: list[dict[str, Any]] = []
         self.account_counter = 0
         self.feature_counter = 0
         self.invoice_counter = 0
@@ -67,6 +69,7 @@ class SaaSSimulator(BusinessSimulator):
         self.subscriptions = {}
         self.invoices = []
         self.tickets = []
+        self.discounts = []
         self.account_counter = 0
         self.feature_counter = 0
         self.invoice_counter = 0
@@ -430,6 +433,187 @@ class SaaSSimulator(BusinessSimulator):
                     timedelta(days=30),
                 ])).date().isoformat(),
                 "generated_at": clock.now.isoformat(),
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Action handlers (Phase 4c)
+    #
+    # New action-only effect types: invoice_chased, plan_price_changed,
+    # account_frozen, account_unfrozen, discount_offered. Handlers
+    # validate before mutating and consume no RNG.
+    # ------------------------------------------------------------------
+
+    def _account_or_reject(self, account_id: str) -> dict[str, Any]:
+        account = next(
+            (a for a in self.accounts if a["account_id"] == account_id),
+            None,
+        )
+        if account is None:
+            raise ActionRejected(f"unknown_account:{account_id}")
+        return account
+
+    def _apply_chase_invoice(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        invoice = next(
+            (
+                i
+                for i in self.invoices
+                if i["invoice_id"] == params["invoice_id"]
+            ),
+            None,
+        )
+        if invoice is None:
+            raise ActionRejected(f"unknown_invoice:{params['invoice_id']}")
+        if invoice["status"] != "open":
+            raise ActionRejected(f"invoice_not_open:{params['invoice_id']}")
+        invoice["chase_count"] = invoice.get("chase_count", 0) + 1
+        invoice["last_chased_at"] = clock.now.isoformat()
+        return {
+            "event_type": "invoice_chased",
+            "payload": {
+                "invoice_id": invoice["invoice_id"],
+                "account_id": invoice["account_id"],
+                "amount": invoice["amount"],
+                "channel": params.get("channel", "email"),
+                "chase_count": invoice["chase_count"],
+                "chased_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_change_plan_price(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        plan_name = params["plan_name"]
+        plan = next(
+            (p for p in self._PLANS if p[0] == plan_name), None
+        )
+        if plan is None:
+            raise ActionRejected(f"unknown_plan:{plan_name}")
+        old_price = plan[1]
+        new_price = round(float(params["new_monthly_fee"]), 2)
+        # Plans are stored as an immutable tuple of tuples (shadowed
+        # from the definition); rebuild it with the new price so
+        # future subscriptions pick it up.
+        self._PLANS = tuple(
+            (name, new_price if name == plan_name else fee, interval)
+            for name, fee, interval in self._PLANS
+        )
+        updated = 0
+        for subscription in self.subscriptions.values():
+            if subscription["plan_name"] == plan_name:
+                subscription["monthly_fee"] = new_price
+                updated += 1
+        return {
+            "event_type": "plan_price_changed",
+            "payload": {
+                "plan_name": plan_name,
+                "old_price": old_price,
+                "new_price": new_price,
+                "subscriptions_updated": updated,
+                "changed_at": clock.now.isoformat(),
+            },
+        }
+
+    def _subscription_for_freeze(
+        self, account_id: str, expected_status: str
+    ) -> dict[str, Any]:
+        self._account_or_reject(account_id)
+        subscription = self.subscriptions.get(account_id)
+        if subscription is None:
+            raise ActionRejected(f"no_subscription:{account_id}")
+        if subscription["status"] != expected_status:
+            raise ActionRejected(
+                f"subscription_not_{expected_status}:{account_id}"
+            )
+        return subscription
+
+    def _apply_freeze_account(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        subscription = self._subscription_for_freeze(
+            params["account_id"], "active"
+        )
+        subscription["status"] = "frozen"
+        return {
+            "event_type": "account_frozen",
+            "payload": {
+                "account_id": params["account_id"],
+                "subscription_id": subscription["subscription_id"],
+                "reason": params.get("reason", "manager_action"),
+                "frozen_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_unfreeze_account(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        subscription = self._subscription_for_freeze(
+            params["account_id"], "frozen"
+        )
+        subscription["status"] = "active"
+        return {
+            "event_type": "account_unfrozen",
+            "payload": {
+                "account_id": params["account_id"],
+                "subscription_id": subscription["subscription_id"],
+                "unfrozen_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_offer_discount(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        account = self._account_or_reject(params["account_id"])
+        discount = {
+            "percent": params["percent"],
+            "months": params.get("months", 1),
+            "offered_at": clock.now.isoformat(),
+        }
+        subscription = self.subscriptions.get(account["account_id"])
+        if subscription is not None:
+            subscription["discount"] = discount
+        else:
+            self.discounts.append(
+                {"account_id": account["account_id"], **discount}
+            )
+        return {
+            "event_type": "discount_offered",
+            "payload": {
+                "account_id": account["account_id"],
+                "subscription_id": (
+                    subscription["subscription_id"] if subscription else None
+                ),
+                "percent": discount["percent"],
+                "duration_months": discount["months"],
+                "offered_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_resolve_ticket(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        ticket = next(
+            (
+                t
+                for t in self.tickets
+                if t["ticket_id"] == params["ticket_id"]
+            ),
+            None,
+        )
+        if ticket is None:
+            raise ActionRejected(f"unknown_ticket:{params['ticket_id']}")
+        if ticket["status"] != "open":
+            raise ActionRejected(f"ticket_not_open:{params['ticket_id']}")
+        ticket["status"] = "resolved"
+        return {
+            "event_type": "ticket_resolved",
+            "payload": {
+                "ticket_id": ticket["ticket_id"],
+                "account_id": ticket["account_id"],
+                "resolution": params.get("resolution", "answered"),
+                "resolved_at": clock.now.isoformat(),
             },
         }
 

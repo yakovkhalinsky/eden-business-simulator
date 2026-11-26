@@ -144,5 +144,63 @@
       "kind": "count",
       "event_type": "support_ticket_opened"
     }
+  ],
+  "actions": [
+    {
+      "action_type": "chase_invoice",
+      "effect": "chase_invoice",
+      "effect_event_type": "invoice_chased",
+      "params": [
+        {"name": "invoice_id", "type": "string", "required": true},
+        {"name": "channel", "type": "string", "enum": ["email", "phone", "portal"]}
+      ]
+    },
+    {
+      "action_type": "change_plan_price",
+      "effect": "change_plan_price",
+      "effect_event_type": "plan_price_changed",
+      "requires_approval": true,
+      "params": [
+        {"name": "plan_name", "type": "string", "required": true, "enum": ["starter", "growth", "enterprise"]},
+        {"name": "new_monthly_fee", "type": "number", "required": true, "min": 1, "max": 10000}
+      ]
+    },
+    {
+      "action_type": "freeze_account",
+      "effect": "freeze_account",
+      "effect_event_type": "account_frozen",
+      "params": [
+        {"name": "account_id", "type": "string", "required": true},
+        {"name": "reason", "type": "string", "enum": ["payment_failure", "fraud_review", "customer_request", "manager_action"]}
+      ]
+    },
+    {
+      "action_type": "unfreeze_account",
+      "effect": "unfreeze_account",
+      "effect_event_type": "account_unfrozen",
+      "params": [
+        {"name": "account_id", "type": "string", "required": true}
+      ]
+    },
+    {
+      "action_type": "offer_discount",
+      "effect": "offer_discount",
+      "effect_event_type": "discount_offered",
+      "requires_approval": true,
+      "params": [
+        {"name": "account_id", "type": "string", "required": true},
+        {"name": "percent", "type": "integer", "required": true, "min": 1, "max": 90},
+        {"name": "months", "type": "integer", "min": 1, "max": 24}
+      ]
+    },
+    {
+      "action_type": "resolve_ticket",
+      "effect": "resolve_ticket",
+      "effect_event_type": "ticket_resolved",
+      "params": [
+        {"name": "ticket_id", "type": "string", "required": true},
+        {"name": "resolution", "type": "string", "enum": ["fixed", "answered", "escalated", "refunded"]}
+      ]
+    }
   ]
 }

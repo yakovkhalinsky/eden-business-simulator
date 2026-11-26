@@ -9,6 +9,7 @@ from typing import Any
 from faker import Faker
 
 from eden_business_simulator.businesses.base import (
+    ActionRejected,
     BusinessSimulator,
     DEFAULT_TAX_TYPE,
     compute_tax,
@@ -456,3 +457,103 @@ class EcommerceSimulator(BusinessSimulator):
         for order in self.orders:
             counts[order["status"]] = counts.get(order["status"], 0) + 1
         return counts
+
+    # ------------------------------------------------------------------
+    # Action handlers (Phase 4c)
+    #
+    # New action-only effect type: product_price_adjusted,
+    # order_expedited. Handlers validate before mutating and consume
+    # no RNG.
+    # ------------------------------------------------------------------
+
+    def _product_or_reject(self, product_id: str) -> dict[str, Any]:
+        product = next(
+            (p for p in self.products if p["product_id"] == product_id),
+            None,
+        )
+        if product is None:
+            raise ActionRejected(f"unknown_product:{product_id}")
+        return product
+
+    def _order_or_reject(self, order_id: str) -> dict[str, Any]:
+        order = next(
+            (o for o in self.orders if o["order_id"] == order_id), None
+        )
+        if order is None:
+            raise ActionRejected(f"unknown_order:{order_id}")
+        return order
+
+    def _apply_adjust_price(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        product = self._product_or_reject(params["product_id"])
+        old_price = product["price"]
+        new_price = round(float(params["new_price"]), 2)
+        product["price"] = new_price
+        return {
+            "event_type": "product_price_adjusted",
+            "payload": {
+                "product_id": product["product_id"],
+                "sku": product["sku"],
+                "old_price": old_price,
+                "new_price": new_price,
+                "adjusted_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_restock_product(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        product = self._product_or_reject(params["product_id"])
+        qty = params["qty"]
+        product["inventory"] += qty
+        return {
+            "event_type": "inventory_adjusted",
+            "payload": {
+                "product_id": product["product_id"],
+                "sku": product["sku"],
+                "delta": qty,
+                "new_inventory": product["inventory"],
+                "reason": "restock",
+                "adjusted_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_issue_refund(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        order = self._order_or_reject(params["order_id"])
+        if order["status"] not in ("paid", "shipped"):
+            raise ActionRejected(f"order_not_refundable:{params['order_id']}")
+        order["status"] = "refunded"
+        return {
+            "event_type": "refund_issued",
+            "payload": {
+                "order_id": order["order_id"],
+                "amount": order["total"],
+                "tax_amount": order["tax_amount"],
+                "tax_type": order["tax_type"],
+                "currency": order["currency"],
+                "reason": params.get("reason", "manager_goodwill"),
+                "issued_at": clock.now.isoformat(),
+            },
+        }
+
+    def _apply_expedite_order(
+        self, params: dict[str, Any], clock: Clock
+    ) -> dict[str, Any]:
+        order = self._order_or_reject(params["order_id"])
+        if order["status"] != "paid":
+            raise ActionRejected(f"order_not_paid:{params['order_id']}")
+        carrier = params.get("carrier")
+        order["expedited"] = True
+        if carrier is not None:
+            order["carrier"] = carrier
+        return {
+            "event_type": "order_expedited",
+            "payload": {
+                "order_id": order["order_id"],
+                "carrier": carrier,
+                "expedited_at": clock.now.isoformat(),
+            },
+        }

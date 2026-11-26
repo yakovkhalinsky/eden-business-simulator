@@ -167,12 +167,22 @@ def test_available_actions_come_from_definition():
     assert by_name["place_supplier_order"].requires_approval is False
 
 
-def test_other_businesses_have_no_actions_yet():
+def test_saas_actions_are_the_phase4c_catalogue():
+    # Phase 3 asserted saas had no actions yet; Phase 4c supersedes
+    # that — saas now declares its own catalogue (covered in full by
+    # tests/test_actions_retail_saas_logistics.py).
     config = SimulatorConfig(business_type="saas", duration_seconds=60)
     sim = load_simulator("saas")
     sim.configure(config)
     sim.initialize(42)
-    assert sim.available_actions() == []
+    assert [a.action_type for a in sim.available_actions()] == [
+        "chase_invoice",
+        "change_plan_price",
+        "freeze_account",
+        "unfreeze_account",
+        "offer_discount",
+        "resolve_ticket",
+    ]
 
 
 # ----------------------------------------------------------------------
