@@ -528,6 +528,70 @@ def position(
         adapter.close()
 
 
+@app.command()
+def verify(
+    stream_id: str = typer.Option(
+        ..., "--stream-id", help="Stream identifier to verify."
+    ),
+    storage: str = typer.Option(
+        "sqlite",
+        "--storage",
+        help="Storage backend: 'sqlite' or 'ndjson' (memory runs are "
+        "per-process and cannot be verified after the fact).",
+    ),
+    storage_uri: Optional[str] = typer.Option(
+        None, "--storage-uri", help="Storage URI or file path."
+    ),
+    check_determinism: bool = typer.Option(
+        False,
+        "--check-determinism",
+        help="Also re-run the business from its recorded seed and diff "
+        "the streams (skipped, with the reason, when the run's inputs "
+        "are not recoverable from storage).",
+    ),
+) -> None:
+    """Verify a stored run by independent recomputation (Phase 8).
+
+    Recomputes period-summary KPIs and stream-derivable position
+    figures from the raw stored events and compares them against what
+    the run stored about itself. Prints one PASS/FAIL/SKIP line per
+    check and exits non-zero if any check fails.
+    """
+    from eden_business_simulator.framework.verify import verify_run
+
+    if storage_uri is None:
+        if storage == "sqlite":
+            storage_uri = "eden_business_simulator.db"
+        elif storage == "ndjson":
+            typer.echo("--storage-uri is required for ndjson verify.", err=True)
+            raise typer.Exit(code=1)
+
+    try:
+        report = verify_run(
+            storage,
+            storage_uri,
+            stream_id,
+            check_determinism_flag=check_determinism,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
+
+    for result in report.checks:
+        typer.echo(f"{result.status} {result.name} — {result.detail}")
+    for field_name in report.unverifiable_fields:
+        from eden_business_simulator.framework.verify import unverifiable_reason
+
+        typer.echo(
+            f"UNVERIFIABLE position.{field_name} — "
+            f"{unverifiable_reason(report.business_type, field_name)}"
+        )
+    verdict = "PASS" if report.ok else "FAIL"
+    typer.echo(f"VERDICT: {verdict}")
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
 def _command_storage_uri(storage: str, storage_uri: Optional[str]) -> str:
     """Resolve the storage URI for the command verbs.
 

@@ -158,6 +158,38 @@ To also embed position snapshots in the stream itself, start the
 daemon with `--position-snapshot-every-events N` (default 0 = off):
 a `state_snapshot_recorded` event is then emitted every N events.
 
+## Verify a stored run (Phase 8)
+
+The `verify` verb independently recomputes a stored run from its raw
+events — it never trusts the run's own stored aggregates:
+
+```bash
+uv run eden-business-simulator verify \
+  --stream-id gym_demo_seed42 \
+  --storage sqlite --storage-uri gym_demo.db
+```
+
+Options:
+
+- `--stream-id` (required) — the stream to verify.
+- `--storage` — `sqlite` (default) or `ndjson`. Memory runs are
+  per-process and cannot be verified after the fact.
+- `--storage-uri` — storage file path (defaults to the shared SQLite
+  file; required for `ndjson`).
+- `--check-determinism` — also re-run the business from its recorded
+  seed and diff the streams. Runs whose inputs are not recoverable
+  from storage (action audits, scenario markers, a cafe
+  `shift_closed`) report this check as `SKIP` with the reason named.
+
+Output is one `PASS`/`FAIL`/`SKIP` line per check (`sequence_integrity`,
+`period_summaries`, `position`, `action_audit`, plus `determinism`
+when requested), naming the period, field or sequence involved in any
+failure, followed by a `VERDICT:` line. Position fields that the event
+stream does not determine (setup state from `initialize()`, tallies
+whose transitions are not all named in the stream) are printed as
+`UNVERIFIABLE` with the reason — they are never silently passed. The
+exit code is 0 iff no check fails.
+
 ## Period KPI summaries
 
 Runs also emit `period_summary` events: one per simulated calendar
