@@ -27,6 +27,15 @@ class IdGenerator:
         self._counters[prefix] = count
         return f"{prefix}_{count:0{width}d}"
 
+    @property
+    def counters(self) -> dict[str, int]:
+        """A copy of the per-prefix counters (full-state snapshots)."""
+        return dict(self._counters)
+
+    def restore_counters(self, counters: dict[str, int]) -> None:
+        """Replace the per-prefix counters from a full-state snapshot."""
+        self._counters = {str(k): int(v) for k, v in counters.items()}
+
     def slug(self, prefix: str, *parts: str, width: int = 2) -> str:
         """Return a compound ID such as ``station_bar_01``.
 

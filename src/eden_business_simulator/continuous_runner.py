@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import signal
 import threading
 import time
+import warnings
+from datetime import datetime
 from typing import Any
 
 from eden_business_simulator.businesses.base import (
@@ -16,9 +19,14 @@ from eden_business_simulator.businesses.base import (
 )
 from eden_business_simulator.config import SimulatorConfig
 from eden_business_simulator.framework.kpi import PeriodTracker, tracker_for
+from eden_business_simulator.framework.state_codec import (
+    SNAPSHOT_FORMAT_VERSION,
+)
 from eden_business_simulator.models import Clock, EventEnvelope
 from eden_business_simulator.output.base import OutputAdapter
 from eden_business_simulator.storage.base import StorageAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class ContinuousRunner:
@@ -56,6 +64,11 @@ class ContinuousRunner:
         # runners that should never consume external commands.
         self.command_polling = command_polling
         self.run_id = config.stream_id or storage.stream_id
+        # Restorable state (S1): loud warnings raised while loading
+        # resume state (e.g. a legacy summary-only snapshot, R2) are
+        # collected here as well as warned/logged, so callers (the
+        # daemon CLI) can surface them to the operator.
+        self.resume_warnings: list[str] = []
         self.clock = Clock(tick_seconds=1.0 / config.events_per_second)
         self._shutdown_event = threading.Event()
         self._events_emitted = 0
@@ -270,15 +283,73 @@ class ContinuousRunner:
         except (ValueError, OSError):
             pass
 
+    def _warn_resume(self, message: str) -> None:
+        """Surface a resume warning loudly: list, log, and warning."""
+        self.resume_warnings.append(message)
+        logger.warning(message)
+        warnings.warn(message, UserWarning, stacklevel=2)
+
+    def _restore_clock(self, snapshot: dict[str, Any]) -> None:
+        """Rebuild the simulated clock from the snapshot envelope.
+
+        Without this, a resumed daemon's sim time restarts at wall-clock
+        now and dayparts, period boundaries and scenario offsets all
+        restart with it (restorable-state scope §3.5).
+        """
+        clock_data = snapshot.get("clock")
+        if not clock_data:
+            return
+        start_time = datetime.fromisoformat(clock_data["start_time"])
+        clock = Clock(
+            start_time=start_time,
+            tick_seconds=float(clock_data["tick_seconds"]),
+        )
+        clock.now = datetime.fromisoformat(clock_data["now"])
+        self.clock = clock
+
+    def _restore_simulator(self, data: dict[str, Any]) -> None:
+        restore_snapshot = getattr(self.simulator, "restore_snapshot", None)
+        if callable(restore_snapshot):
+            restore_snapshot(data)
+        else:
+            # Duck-typed simulators (test doubles) predate the
+            # full-state entry point; their restore() is the contract.
+            self.simulator.restore(data)
+
     def _load_resume_state(self) -> None:
         checkpoint = self.storage.read_checkpoint()
-        if checkpoint is not None:
-            self._next_sequence = checkpoint["last_sequence"] + 1
-            snapshot = self.storage.read_snapshot(self.SNAPSHOT_KEY)
-            if snapshot is not None:
-                self.simulator.restore(snapshot.get("data", {}))
-        else:
+        if checkpoint is None:
             self._next_sequence = 0
+            return
+        self._next_sequence = checkpoint["last_sequence"] + 1
+        snapshot = self.storage.read_snapshot(self.SNAPSHOT_KEY)
+        if snapshot is None:
+            return
+        snapshot_format = snapshot.get("snapshot_format")
+        if snapshot_format is None:
+            # R2 legacy fallback: a pre-restorable-state summary
+            # snapshot. Resume exactly as before (sequence resumes,
+            # business state restarts) — but say so, loudly, instead of
+            # letting the operator believe the business continued.
+            self._warn_resume(
+                f"Resuming stream '{self.run_id}' from a legacy "
+                "summary-only snapshot (no full-state format): the "
+                "stream sequence resumes, but business state restarts "
+                "from its initial state and the simulated clock "
+                "restarts at wall-clock now. The next checkpoint "
+                "rewrites the snapshot in the current format."
+            )
+            self._restore_simulator(snapshot.get("data", {}))
+            return
+        if snapshot_format != SNAPSHOT_FORMAT_VERSION:
+            raise ValueError(
+                f"Snapshot for stream '{self.run_id}' has "
+                f"snapshot_format {snapshot_format!r}; this build "
+                f"reads format {SNAPSHOT_FORMAT_VERSION}. Refusing to "
+                "resume from a snapshot it cannot interpret."
+            )
+        self._restore_clock(snapshot)
+        self._restore_simulator(snapshot.get("data", {}))
 
     def _should_checkpoint(self) -> bool:
         if self._events_emitted == 0:
@@ -292,10 +363,29 @@ class ContinuousRunner:
 
     def _write_checkpoint(self) -> None:
         last_sequence = self._next_sequence - 1
+        data = dict(self.simulator.state_snapshot())
+        # Restorable state (S1): businesses that implement
+        # serialize_state() get a versioned full_state section inside
+        # the snapshot data, next to the summary keys. Duck-typed
+        # simulators without the method keep summary-only snapshots.
+        full_state_fn = getattr(self.simulator, "full_state_snapshot", None)
+        if callable(full_state_fn):
+            full_state = full_state_fn()
+            if full_state is not None:
+                data["full_state"] = full_state
         snapshot_data = {
             "seed": self.config.seed,
             "business_type": self.config.business_type,
-            "data": self.simulator.state_snapshot(),
+            "snapshot_format": SNAPSHOT_FORMAT_VERSION,
+            # The simulated clock rides in the envelope (sibling of
+            # "data", per the scope) so resume can continue sim time
+            # instead of restarting at wall-clock now.
+            "clock": {
+                "start_time": self.clock.start_time.isoformat(),
+                "now": self.clock.now.isoformat(),
+                "tick_seconds": self.clock.tick_seconds,
+            },
+            "data": data,
         }
         self.storage.write_snapshot(self.SNAPSHOT_KEY, snapshot_data)
         # Phase 1: the position read API lives under its own key so the

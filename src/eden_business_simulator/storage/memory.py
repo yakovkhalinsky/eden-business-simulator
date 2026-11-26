@@ -58,10 +58,16 @@ class MemoryStorageAdapter(StorageAdapter):
         return len(self._records) - 1
 
     def write_snapshot(self, key: str, data: dict[str, Any]) -> None:
-        self._snapshots[key] = dict(data)
+        # Deep copy on write *and* read: a shallow copy would alias
+        # nested full-state structures (entity lists, RNG state)
+        # between the live simulator and the stored snapshot, so
+        # in-process resume would observe mutations made after the
+        # checkpoint — and tests would pass for the wrong reason.
+        self._snapshots[key] = copy.deepcopy(data)
 
     def read_snapshot(self, key: str) -> dict[str, Any] | None:
-        return self._snapshots.get(key)
+        snapshot = self._snapshots.get(key)
+        return copy.deepcopy(snapshot) if snapshot is not None else None
 
     def write_checkpoint(self, last_sequence: int) -> None:
         self._checkpoint = {

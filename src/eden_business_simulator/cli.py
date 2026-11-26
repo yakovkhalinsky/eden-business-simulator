@@ -319,6 +319,12 @@ def daemon(
         command_polling=True,
     )
     count = runner.run()
+    # Restorable state (S1/R2): resume warnings (e.g. a legacy
+    # summary-only snapshot) already fired as Python warnings/log lines
+    # at resume time; repeat them here so they are unmissable in the
+    # daemon's terminal output.
+    for warning in runner.resume_warnings:
+        typer.echo(f"Resume warning: {warning}", err=True)
     typer.echo(
         f"Daemon emitted {count} events for '{business_type}' stream '{stream_id_value}'.",
         err=True,

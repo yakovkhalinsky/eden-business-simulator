@@ -247,6 +247,127 @@ class BusinessSimulator(ABC):
         """Return a serializable view of the simulator's current state."""
         ...
 
+    # ------------------------------------------------------------------
+    # Full-state snapshots (restorable state, S1)
+    # ------------------------------------------------------------------
+
+    def serialize_state(self) -> dict[str, Any] | None:
+        """Return this business's complete state, or ``None``.
+
+        The opt-in half of genuine restore: businesses that implement
+        this (S2/S3) get their state persisted inside the checkpoint
+        snapshot's ``full_state`` section, alongside the framework-owned
+        RNG/Faker/IdGenerator state, and handed back to
+        :meth:`restore_state` on resume. The returned dict must contain
+        only plain data (dicts, lists, strings, numbers, booleans,
+        ``None``, and ``datetime``/``date`` values, which the framework
+        encodes explicitly). The default returns ``None`` — the
+        business keeps today's summary-only snapshot behaviour.
+        """
+        return None
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Replace this business's state from :meth:`serialize_state`.
+
+        Must *replace*, not merge: the daemon path initialises a fresh
+        simulator first, so anything not overwritten here would leak
+        initial state into the resumed run. Called by
+        :meth:`restore_full_state` before RNG/Faker state is restored
+        (RNG state goes back last, per the scope's ordering rule).
+        """
+        pass
+
+    def full_state_snapshot(self) -> dict[str, Any] | None:
+        """Assemble the versioned ``full_state`` section, if opted in.
+
+        Returns ``None`` when the business does not implement
+        :meth:`serialize_state`. Otherwise the section carries the
+        business's own state (datetimes explicitly encoded) plus the
+        framework-owned state every simulator shares: RNG state,
+        Faker state and IdGenerator counters — all JSON-safe (R6: raw
+        JSON, no pickle).
+        """
+        state = self.serialize_state()
+        if state is None:
+            return None
+        from eden_business_simulator.framework.state_codec import (
+            FULL_STATE_FORMAT_VERSION,
+            encode_datetimes,
+            encode_random_state,
+            faker_random,
+        )
+
+        full: dict[str, Any] = {
+            "format_version": FULL_STATE_FORMAT_VERSION,
+            "business_type": self.business_type,
+            "state": encode_datetimes(state),
+        }
+        rng = getattr(self, "rng", None)
+        if rng is not None:
+            full["rng_state"] = encode_random_state(rng.getstate())
+        faker = getattr(self, "faker", None)
+        if faker is not None:
+            full["faker_state"] = encode_random_state(
+                faker_random(faker).getstate()
+            )
+        id_gen = getattr(self, "id_gen", None)
+        if id_gen is not None:
+            full["id_gen_counters"] = id_gen.counters
+        return full
+
+    def restore_full_state(self, full: dict[str, Any]) -> None:
+        """Restore from a ``full_state`` section, validating its version.
+
+        An unrecognised ``format_version`` raises
+        :class:`FullStateVersionError` — a clear failure at resume,
+        never a silent misread. Ordering (per the scope): the
+        business's own state first, then IdGenerator counters, and
+        RNG/Faker state last, after any construction that might draw.
+        """
+        from eden_business_simulator.framework.state_codec import (
+            FULL_STATE_FORMAT_VERSION,
+            FullStateVersionError,
+            decode_datetimes,
+            decode_random_state,
+            faker_random,
+        )
+
+        version = full.get("format_version")
+        if version != FULL_STATE_FORMAT_VERSION:
+            raise FullStateVersionError(
+                f"Unsupported full_state format_version {version!r} for "
+                f"business {self.business_type!r}: this build reads "
+                f"version {FULL_STATE_FORMAT_VERSION}. Refusing to "
+                "resume from state it cannot interpret."
+            )
+        self.restore_state(decode_datetimes(full.get("state") or {}))
+        id_gen = getattr(self, "id_gen", None)
+        if id_gen is not None and "id_gen_counters" in full:
+            id_gen.restore_counters(full["id_gen_counters"])
+        rng = getattr(self, "rng", None)
+        if rng is not None and "rng_state" in full:
+            rng.setstate(decode_random_state(full["rng_state"]))
+        faker = getattr(self, "faker", None)
+        if faker is not None and "faker_state" in full:
+            faker_random(faker).setstate(
+                decode_random_state(full["faker_state"])
+            )
+
+    def restore_snapshot(self, data: dict[str, Any]) -> None:
+        """Runner entry point for restoring checkpoint ``data``.
+
+        Runs the legacy :meth:`restore` hook first (summary snapshots
+        behave exactly as they always have), then applies the
+        ``full_state`` section when one is present — so RNG/Faker state
+        is restored last, after everything that might draw from it.
+        Runners call this rather than :meth:`restore` directly.
+        """
+        self.restore(data)
+        if isinstance(data, dict):
+            full = data.get("full_state")
+            if full is not None:
+                self.restore_full_state(full)
+
     def position_snapshot(self) -> dict[str, Any]:
         """Return the current business position as a versioned envelope.
 
@@ -373,5 +494,12 @@ class BusinessSimulator(ABC):
         to resume continuous generation from a checkpoint.  The default is a
         no-op so that stateless simulators can still be resumed deterministically
         from the original seed and the last checkpoint sequence.
+
+        Note: runners call :meth:`restore_snapshot`, which invokes this
+        hook and then applies the ``full_state`` section (see
+        :meth:`serialize_state`) when one is present. Overrides therefore
+        do not need to call ``super()`` to get full-state handling — but
+        businesses implementing genuine restore should implement
+        :meth:`restore_state` instead of overriding this hook.
         """
         pass
